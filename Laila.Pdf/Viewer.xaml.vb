@@ -1249,7 +1249,7 @@ Public Class Viewer
                             End If
 
                             ' draw page border
-                            'drawingContext.DrawRectangle(Media.Brushes.Black, New Media.Pen(), New Rect(r.X + 3, r.Y + 3, r.Width, r.Height))
+                            drawingContext.DrawRectangle(Media.Brushes.Black, New Media.Pen(), New Rect(r.X + 3, r.Y + 3, r.Width, r.Height))
 
                             drawingContext.DrawImage(_p(i).WritableBitmapPage, New Rect(r.X, r.Y, r.Width, r.Height))
                             drawingContext.DrawImage(_p(i).WritableBitmapForm, New Rect(r.X, r.Y, r.Width, r.Height))
