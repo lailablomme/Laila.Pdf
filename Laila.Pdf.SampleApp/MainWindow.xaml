@@ -1,0 +1,59 @@
+﻿<Window x:Class="MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Laila.Pdf.SampleApp"
+        xmlns:v="clr-namespace:Laila.Pdf;assembly=Laila.Pdf"
+        mc:Ignorable="d" 
+        Title="MainWindow" Height="750" Width="1000" x:Name="w">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal">
+            <Button x:Name="openPDFButton">Open PDF</Button>
+            <Button x:Name="savePDFButton">Save PDF</Button>
+            <Button x:Name="fitToWidthButton">Fit to width</Button>
+            <Button x:Name="fitToHeightButton">Fit to height</Button>
+            <Button x:Name="copyTextButton">Copy text</Button>
+            <Button x:Name="printButton">Print</Button>
+            <TextBlock>Find:</TextBlock>
+            <TextBox Text="{Binding SearchTerm, ElementName=viewer, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" MinWidth="200" />
+            <TextBlock Text="{Binding VisibleCurrentMatchIndex, ElementName=w}" />
+            <TextBlock>/</TextBlock>
+            <TextBlock Text="{Binding NumberOfMatches, ElementName=w}" />
+            <Button x:Name="prevMatchButton">&lt;</Button>
+            <Button x:Name="nextMatchButton">&gt;</Button>
+            <TextBlock>Tool:</TextBlock>
+            <RadioButton IsChecked="{Binding IsZoomChecked, ElementName=w}" x:Name="zoomToggleButton">Zoom</RadioButton>
+            <RadioButton IsChecked="{Binding IsSelectChecked, ElementName=w}" x:Name="selectToggleButton" Margin="10,0,0,0">Select</RadioButton>
+            <RadioButton IsChecked="{Binding IsFormChecked, ElementName=w}" x:Name="formToggleButton" Margin="10,0,0,0">Form</RadioButton>
+        </StackPanel>
+
+        <v:Viewer Grid.Row="1" x:Name="viewer" Tool="{Binding Tool, ElementName=w}" CurrentMatchIndex="{Binding CurrentMatchIndex, ElementName=w}" NumberOfMatches="{Binding NumberOfMatches, ElementName=w}" />
+        
+        <local:LoadingSpinner Grid.Row="1" x:Name="loadingSpinner">
+            <local:LoadingSpinner.Style>
+                <Style>
+                    <Setter Property="local:LoadingSpinner.Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsLoading, ElementName=viewer}" Value="True">
+                            <Setter Property="local:LoadingSpinner.Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </local:LoadingSpinner.Style>
+        </local:LoadingSpinner>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal">
+            <TextBlock>
+                <Run>IsTextSelected:</Run>
+                <Run Text="{Binding IsTextSelected, ElementName=viewer}" />
+            </TextBlock>
+        </StackPanel>
+    </Grid>
+</Window>
