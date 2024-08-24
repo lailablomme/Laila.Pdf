@@ -604,7 +604,7 @@ Public Class Viewer
     Private _scrollTimer As Timer = Nothing
     Private _scrollPoint As System.Windows.Point
 
-    Protected Overrides Async Sub OnMouseMove(e As MouseEventArgs)
+    Protected Overrides Sub OnMouseMove(e As MouseEventArgs)
         Dim scrollbarVWidth As Integer = If(scrollBarV.Width = Double.NaN OrElse scrollBarV.Visibility <> Visibility.Visible, 0, scrollBarV.Width)
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
 
@@ -650,7 +650,10 @@ Public Class Viewer
                                             End If
                                             If _scrollPoint.X < 0 Then
                                                 scrollBarH.Value -= Math.Abs(_scrollPoint.X)
-                                                Dim r As Rectangle = getPageRectangle(getPageByPoint(New System.Windows.Point() With {.Y = _scrollPoint.Y, .X = -1}))
+                                                Dim pageNo As Integer = getPageByPoint(New System.Windows.Point() With {.Y = _scrollPoint.Y, .X = -1})
+                                                If pageNo < 0 Then pageNo = 0
+                                                If pageNo > _p.Count - 1 Then pageNo = _p.Count - 1
+                                                Dim r As Rectangle = getPageRectangle(pageNo)
                                                 If r.X > 0 Then
                                                     point.X = r.X + 1
                                                 Else
@@ -660,7 +663,10 @@ Public Class Viewer
                                                 InvalidateVisual()
                                             ElseIf _scrollPoint.X > Me.ActualWidth - scrollbarVWidth Then
                                                 scrollBarH.Value += Math.Abs(_scrollPoint.X - Me.ActualWidth - scrollbarVWidth)
-                                                Dim r As Rectangle = getPageRectangle(getPageByPoint(New System.Windows.Point() With {.Y = _scrollPoint.Y, .X = -1}))
+                                                Dim pageNo As Integer = getPageByPoint(New System.Windows.Point() With {.Y = _scrollPoint.Y, .X = -1})
+                                                If pageNo < 0 Then pageNo = 0
+                                                If pageNo > _p.Count - 1 Then pageNo = _p.Count - 1
+                                                Dim r As Rectangle = getPageRectangle(pageNo)
                                                 If r.X + r.Width < Me.ActualWidth - scrollbarVWidth Then
                                                     point.X = r.X + r.Width - 1
                                                 Else
@@ -745,7 +751,7 @@ Public Class Viewer
                 End If
 
                 For i = startPageIndex To endPageIndex
-                    _p(i).WritableBitmapPage = Nothing
+                    _p(i).DoResetWritableBitmapPage = True
                 Next
             End If
         End SyncLock
@@ -1017,7 +1023,7 @@ Public Class Viewer
         Dim scrollbarVWidth As Integer = If(scrollBarV.Width = Double.NaN OrElse scrollBarV.Visibility <> Visibility.Visible, 0, scrollBarV.Width)
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
         drawingContext.PushClip(New RectangleGeometry(New Rect(0, 0, Me.ActualWidth, Me.ActualHeight)))
-        If grid.ActualWidth - scrollbarVWidth > 0 AndAlso grid.ActualHeight - scrollbarHHeight > 0 Then
+        If Me.ActualWidth - scrollbarVWidth > 0 AndAlso Me.ActualHeight - scrollbarHHeight > 0 Then
             Dim _didClear As Boolean = False
 
             SyncLock _docLock
@@ -1047,13 +1053,7 @@ Public Class Viewer
                         If i < _p.Count Then
                             Dim r As Rectangle = getPageRectangle(i)
 
-                            Dim _didUpdateForm As Boolean = False
-                            Dim _didUpdatePage As Boolean = False
-
                             If _p(i).WritableBitmapForm Is Nothing Then
-                                Dim sw As Stopwatch = New Stopwatch()
-                                sw.Start()
-
                                 Dim wbForm As WriteableBitmap = New WriteableBitmap(
                                         _p(i).Width, _p(i).Height, 96, 96, PixelFormats.Bgra32, Nothing)
                                 _doc.Pages(i).RenderForm(wbForm)
@@ -1078,16 +1078,9 @@ Public Class Viewer
                                 wbForm.Unlock()
 
                                 _p(i).WritableBitmapForm = wbForm
-                                _didUpdateForm = True
-
-                                sw.Stop()
-                                Debug.WriteLine(String.Format("make WritableBitmapForm={0}", sw.Elapsed.ToString()))
                             End If
 
                             If _p(i).WritableBitmapPageOriginal Is Nothing Then
-                                Dim sw As Stopwatch = New Stopwatch()
-                                sw.Start()
-
                                 ' ...get page bitmap
                                 _p(i).WritableBitmapPageOriginal = New WriteableBitmap(
                                         r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
@@ -1106,68 +1099,63 @@ Public Class Viewer
                                     End Using
                                 End Using
 
-                                _p(i).WritableBitmapPage = Nothing
-
-                                sw.Stop()
-                                Debug.WriteLine(String.Format("make WritableBitmapPageOriginal={0}", sw.Elapsed.ToString()))
+                                _p(i).DoResetWritableBitmapPage = True
                             End If
 
-                            If _p(i).WritableBitmapPage Is Nothing Then
-                                Dim sw As Stopwatch = New Stopwatch()
-                                sw.Start()
+                            If _p(i).WritableBitmapPage Is Nothing OrElse _p(i).DoResetWritableBitmapPage Then
+                                _p(i).DoResetWritableBitmapPage = False
 
-                                Dim sw3 As Stopwatch = New Stopwatch()
-                                sw3.Start()
+                                Dim stride As Integer = Math.Abs(_p(i).WritableBitmapPageOriginal.BackBufferStride)
+                                Dim bytes As Integer = stride * _p(i).WritableBitmapPageOriginal.PixelHeight
+                                Dim rgbValues(bytes - 1) As Byte
+                                Dim rgbValuesOriginal(bytes - 1) As Byte
 
-                                Dim wbPage As WriteableBitmap = _p(i).WritableBitmapPageOriginal.Clone()
-                                wbPage.Lock()
+                                ' copy original bitmap
+                                _p(i).WritableBitmapPageOriginal.CopyPixels(rgbValues, stride, 0)
+                                _p(i).WritableBitmapPageOriginal.CopyPixels(rgbValuesOriginal, stride, 0)
 
-                                Using bmpPage = New Bitmap(wbPage.PixelWidth, wbPage.PixelHeight,
-                                                wbPage.BackBufferStride, Imaging.PixelFormat.Format32bppPArgb, wbPage.BackBuffer)
-                                    Dim bmdPage As BitmapData = bmpPage.LockBits(
-                                                New System.Drawing.Rectangle(0, 0, bmpPage.Width, bmpPage.Height),
-                                                ImageLockMode.ReadWrite, bmpPage.PixelFormat)
-                                    Dim bytes As Integer = Math.Abs(bmdPage.Stride) * bmpPage.Height
-                                    Dim rgbValues(bytes - 1) As Byte
-                                    Dim rgbValuesOriginal(bytes - 1) As Byte
-                                    Marshal.Copy(bmdPage.Scan0, rgbValues, 0, bytes)
-                                    Array.Copy(rgbValues, rgbValuesOriginal, bytes)
+                                If _p(i).WritableBitmapPage Is Nothing _
+                                    OrElse r.Width <> _p(i).WritableBitmapPage.PixelWidth _
+                                    OrElse r.Height <> _p(i).WritableBitmapPage.PixelHeight Then
+                                    _p(i).WritableBitmapPage = New WriteableBitmap(
+                                    r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
+                                End If
 
-                                    sw3.Stop()
-                                    Debug.WriteLine(String.Format("make bmdPage={0}", sw3.Elapsed.ToString()))
+                                Dim w As Integer = _p(i).WritableBitmapPage.PixelWidth, h As Integer = _p(i).WritableBitmapPage.PixelHeight
 
-                                    ' draw search highlighting
-                                    If Not _matches Is Nothing Then
-                                        For Each range In _matches
-                                            ' if the match is at least partially on this page...
-                                            If i >= range.StartPageIndex AndAlso i <= range.EndPageIndex Then
-                                                ' get (partial) highlight rects
-                                                Dim numRects As Integer
-                                                If i = range.StartPageIndex AndAlso i = range.EndPageIndex Then
-                                                    numRects = _doc.Pages(i).TextPage.CountRects(range.StartTextIndex, range.EndTextIndex - range.StartTextIndex)
-                                                ElseIf i = range.StartPageIndex Then
-                                                    numRects = _doc.Pages(i).TextPage.CountRects(range.StartTextIndex, -1)
-                                                ElseIf i = range.EndPageIndex Then
-                                                    numRects = _doc.Pages(i).TextPage.CountRects(0, range.EndTextIndex)
-                                                Else
-                                                    numRects = _doc.Pages(i).TextPage.CountRects(0, -1)
-                                                End If
+                                ' draw search highlighting
+                                If Not _matches Is Nothing Then
+                                    For Each range In _matches
+                                        ' if the match is at least partially on this page...
+                                        If i >= range.StartPageIndex AndAlso i <= range.EndPageIndex Then
+                                            ' get (partial) highlight rects
+                                            Dim numRects As Integer
+                                            If i = range.StartPageIndex AndAlso i = range.EndPageIndex Then
+                                                numRects = _doc.Pages(i).TextPage.CountRects(range.StartTextIndex, range.EndTextIndex - range.StartTextIndex)
+                                            ElseIf i = range.StartPageIndex Then
+                                                numRects = _doc.Pages(i).TextPage.CountRects(range.StartTextIndex, -1)
+                                            ElseIf i = range.EndPageIndex Then
+                                                numRects = _doc.Pages(i).TextPage.CountRects(0, range.EndTextIndex)
+                                            Else
+                                                numRects = _doc.Pages(i).TextPage.CountRects(0, -1)
+                                            End If
 
-                                                ' for each rect...
-                                                For j = 0 To numRects - 1
-                                                    ' ...get coordinates
-                                                    Dim r2 As FS_RECTF = _doc.Pages(i).TextPage.GetRect(j)
+                                            ' for each rect...
+                                            For j = 0 To numRects - 1
+                                                ' ...get coordinates
+                                                Dim r2 As FS_RECTF = _doc.Pages(i).TextPage.GetRect(j)
 
-                                                    ' translate coordinates to device
-                                                    Dim p4 = _doc.Pages(i).PageToDevice((0, 0, bmpPage.Width, bmpPage.Height), r2.Left, r2.Top + 3)
-                                                    Dim p5 = _doc.Pages(i).PageToDevice((0, 0, bmpPage.Width, bmpPage.Height), r2.Right, r2.Bottom - 3)
+                                                ' translate coordinates to device
+                                                Dim p4 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Left, r2.Top + 3)
+                                                Dim p5 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Right, r2.Bottom - 3)
 
-                                                    ' invert selection rectangle
-                                                    For x = p4.X To p5.X
-                                                        For y = p4.Y To p5.Y
+                                                ' invert selection rectangle
+                                                For x = p4.X To p5.X
+                                                    For y = p4.Y To p5.Y
+                                                        If x >= 0 AndAlso x < w AndAlso y >= 0 AndAlso y < h Then
                                                             Try
                                                                 ' invert to yellow
-                                                                rgbValues(4 * x + bmdPage.Stride * y) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y)
+                                                                rgbValues(4 * x + stride * y) = 255 - rgbValuesOriginal(4 * x + stride * y)
                                                                 'rgbValues(4 * x + bmdPage.Stride * y + 1) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 1)
                                                                 'rgbValues(4 * x + bmdPage.Stride * y + 2) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 2)
                                                                 'rgbValues(4 * x + bmdPage.Stride * y + 3) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 3)  
@@ -1175,69 +1163,62 @@ Public Class Viewer
                                                                 ' no idea why as of yet
                                                                 Debug.WriteLine("unhandled ex: " & ex.Message)
                                                             End Try
-                                                        Next
+                                                        End If
                                                     Next
                                                 Next
-                                            End If
-                                        Next
+                                            Next
+                                        End If
+                                    Next
+                                End If
+
+                                ' if the selection is at least partially on this page...
+                                If i >= startSelectionPage AndAlso i <= endSelectionPage AndAlso Me.Tool <> Tool.Form Then
+                                    ' get (partial) selection rects
+                                    Dim numRects As Integer
+                                    If i = startSelectionPage AndAlso i = endSelectionPage Then
+                                        numRects = _doc.Pages(i).TextPage.CountRects(startSelectionTextPos, endSelectionTextPos - startSelectionTextPos)
+                                    ElseIf i = startSelectionPage Then
+                                        numRects = _doc.Pages(i).TextPage.CountRects(startSelectionTextPos, -1)
+                                    ElseIf i = endSelectionPage Then
+                                        numRects = _doc.Pages(i).TextPage.CountRects(0, endSelectionTextPos)
+                                    Else
+                                        numRects = _doc.Pages(i).TextPage.CountRects(0, -1)
                                     End If
 
-                                    ' if the selection is at least partially on this page...
-                                    If i >= startSelectionPage AndAlso i <= endSelectionPage AndAlso Me.Tool <> Tool.Form Then
-                                        ' get (partial) selection rects
-                                        Dim numRects As Integer
-                                        If i = startSelectionPage AndAlso i = endSelectionPage Then
-                                            numRects = _doc.Pages(i).TextPage.CountRects(startSelectionTextPos, endSelectionTextPos - startSelectionTextPos)
-                                        ElseIf i = startSelectionPage Then
-                                            numRects = _doc.Pages(i).TextPage.CountRects(startSelectionTextPos, -1)
-                                        ElseIf i = endSelectionPage Then
-                                            numRects = _doc.Pages(i).TextPage.CountRects(0, endSelectionTextPos)
-                                        Else
-                                            numRects = _doc.Pages(i).TextPage.CountRects(0, -1)
-                                        End If
+                                    ' for each rect...
+                                    For j = 0 To numRects - 1
+                                        ' ...get coordinates
+                                        Dim r2 As FS_RECTF = _doc.Pages(i).TextPage.GetRect(j)
 
-                                        ' for each rect...
-                                        For j = 0 To numRects - 1
-                                            ' ...get coordinates
-                                            Dim r2 As FS_RECTF = _doc.Pages(i).TextPage.GetRect(j)
+                                        ' translate coordinates to device
+                                        Dim p4 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Left, r2.Top + 3)
+                                        Dim p5 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Right, r2.Bottom - 3)
 
-                                            ' translate coordinates to device
-                                            Dim p4 = _doc.Pages(i).PageToDevice((0, 0, bmpPage.Width, bmpPage.Height), r2.Left, r2.Top + 3)
-                                            Dim p5 = _doc.Pages(i).PageToDevice((0, 0, bmpPage.Width, bmpPage.Height), r2.Right, r2.Bottom - 3)
-
-                                            ' invert selection rectangle
-                                            For x = p4.X To p5.X
-                                                For y = p4.Y To p5.Y
+                                        ' invert selection rectangle
+                                        For x = p4.X To p5.X
+                                            For y = p4.Y To p5.Y
+                                                If x >= 0 AndAlso x < w AndAlso y >= 0 AndAlso y < h Then
                                                     Try
                                                         ' invert to blue
                                                         'rgbValues(4 * x + bmdPage.Stride * y) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y)
-                                                        rgbValues(4 * x + bmdPage.Stride * y + 1) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 1)
-                                                        rgbValues(4 * x + bmdPage.Stride * y + 2) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 2)
+                                                        rgbValues(4 * x + stride * y + 1) = 255 - rgbValuesOriginal(4 * x + stride * y + 1)
+                                                        rgbValues(4 * x + stride * y + 2) = 255 - rgbValuesOriginal(4 * x + stride * y + 2)
                                                         'rgbValues(4 * x + bmdPage.Stride * y + 3) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 3)  
                                                     Catch ex As Exception
                                                         ' no idea why as of yet
                                                         Debug.WriteLine("unhandled ex: " & ex.Message)
                                                     End Try
-                                                Next
+                                                End If
                                             Next
                                         Next
-                                    End If
+                                    Next
+                                End If
 
-                                    Marshal.Copy(rgbValues, 0, bmdPage.Scan0, bytes)
-                                    bmpPage.UnlockBits(bmdPage)
-                                End Using
-
-                                wbPage.AddDirtyRect(New Int32Rect(0, 0, wbPage.PixelWidth, wbPage.PixelHeight))
-                                wbPage.Unlock()
-
-                                _p(i).WritableBitmapPage = wbPage
-                                _didUpdatePage = True
-
-                                sw.Stop()
-                                Debug.WriteLine(String.Format("make WritableBitmapPage={0}", sw.Elapsed.ToString()))
+                                _p(i).WritableBitmapPage.WritePixels(
+                                    New Int32Rect(0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight),
+                                    rgbValues, stride, 0)
                             End If
 
-                            'If _didUpdateForm OrElse _didUpdatePage Then
                             ' draw page bitmap
                             Dim sw2 As Stopwatch = New Stopwatch()
                             sw2.Start()
@@ -1257,8 +1238,8 @@ Public Class Viewer
                             sw2.Stop()
                             Debug.WriteLine("page=" & If(_p(i).WritableBitmapPage Is Nothing, "nothing", "something"))
                             Debug.WriteLine("form=" & If(_p(i).WritableBitmapForm Is Nothing, "nothing", "something"))
+
                             Debug.WriteLine(String.Format("draw={0} x=" & r.X & " y=" & r.Y & " w=" & r.Width & " h=" & r.Height, sw2.Elapsed.ToString()))
-                            'End If
 
                             Debug.WriteLine("-----")
                         End If
@@ -1599,6 +1580,7 @@ Public Class Viewer
         Private _pageHeight As Integer
 
         Public Property WritableBitmapPage As WriteableBitmap
+        Public Property DoResetWritableBitmapPage As Boolean = True
         Public Property WritableBitmapPageOriginal As WriteableBitmap
         Public Property WritableBitmapForm As WriteableBitmap
 
