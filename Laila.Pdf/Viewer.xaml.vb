@@ -1575,7 +1575,6 @@ Public Class Viewer
         Private _zoom As Double = 100
         Private _originalWidth As Double
         Private _originalHeight As Double
-        Private _bitmap As System.Drawing.Bitmap
         Private _pageWidth As Integer
         Private _pageHeight As Integer
 
