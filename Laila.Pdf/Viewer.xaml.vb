@@ -1341,7 +1341,7 @@ Public Class Viewer
 
     Private Sub resize()
         Dim scrollBarVWidth As Double = 0
-        Dim totalPageHeight As Double = If(Not _p Is Nothing, _p.Sum(Function(p) p.Height + PAGE_PADDING_Y), 0)
+        Dim totalPageHeight As Double = If(Not _p Is Nothing, _p.Sum(Function(p) p.Height + PAGE_PADDING_Y), 0) + PAGE_PADDING_Y
         If Not _p Is Nothing AndAlso _p.Count > 0 AndAlso totalPageHeight > Me.ActualHeight Then
             scrollBarVWidth = scrollBarV.Width
             scrollBarV.Visibility = Visibility.Visible
@@ -1402,7 +1402,7 @@ Public Class Viewer
     Private Function getNumberOfVisiblePages() As Integer
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
         Dim count As Integer = 0
-        For i = getFirstVisiblePageIndex() To _p.Count - 1
+        For i = 0 To _p.Count - 1
             Dim r As Rectangle = getPageRectangle(i)
             If r.Y >= 0 AndAlso r.Y <= Me.ActualHeight - scrollbarHHeight _
                 OrElse r.Y + r.Height >= 0 AndAlso r.Y + r.Height <= Me.ActualHeight - scrollbarHHeight _
@@ -1414,33 +1414,29 @@ Public Class Viewer
     End Function
 
     Private Function getFirstVisiblePageIndex() As Integer
-        Dim i As Integer = 0 'Math.Floor(scrollBarV.Value / (_p(0).Height + PAGE_PADDING_Y))
-        Dim h As Double = scrollBarV.Value
-        For Each p In _p
-            h -= (p.Height + PAGE_PADDING_Y)
-            If h <= 0 Then
-                Exit For
-            Else
-                i += 1
+        Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
+        Dim count As Integer = 0
+        For i = 0 To _p.Count - 1
+            Dim r As Rectangle = getPageRectangle(i)
+            If r.Y >= 0 AndAlso r.Y <= Me.ActualHeight - scrollbarHHeight _
+                OrElse r.Y + r.Height >= 0 AndAlso r.Y + r.Height <= Me.ActualHeight - scrollbarHHeight _
+                OrElse r.Y <= 0 AndAlso r.Y + r.Height >= Me.ActualHeight - scrollbarHHeight Then
+                Return i
             End If
         Next
-
-        Return i
+        Return -1
     End Function
 
     Private Function getCenteredPageIndex() As Integer
-        Dim i As Integer = 0 'Math.Floor(scrollBarV.Value / (_p(0).Height + PAGE_PADDING_Y))
-        Dim h As Double = scrollBarV.Value + scrollBarV.ViewportSize / 2
-        For Each p In _p
-            h -= (p.Height + PAGE_PADDING_Y)
-            If h <= 0 Then
-                Exit For
-            Else
-                i += 1
+        Dim h As Double = scrollBarV.ViewportSize / 2
+        Dim count As Integer = 0
+        For i = 0 To _p.Count - 1
+            Dim r As Rectangle = getPageRectangle(i)
+            If r.Y - PAGE_PADDING_Y <= h AndAlso r.Y + r.Height >= h Then
+                Return i
             End If
         Next
-
-        Return If(i > _p.Count - 1, _p.Count - 1, i)
+        Return -1
     End Function
 
     Private Const PAGE_PADDING_Y As Integer = 10
@@ -1462,25 +1458,9 @@ Public Class Viewer
         Dim scrollbarVWidth As Integer = If(scrollBarV.Width = Double.NaN OrElse scrollBarV.Visibility <> Visibility.Visible, 0, scrollBarV.Width)
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
 
-        ' find the first page to draw
-        Dim index As Integer = getFirstVisiblePageIndex()
-
-        ' find y to draw first page
-        Dim firstPosY As Double = 0 'y + (_p(i).Height + PAGE_PADDING_Y) * (i - index)
-        For z = 0 To index - 1
-            firstPosY += (_p(z).Height + PAGE_PADDING_Y)
-        Next
-        Dim y As Integer = 0
-        Dim totalHeight As Double = If(Not _p Is Nothing, _p.Sum(Function(p) p.Height + PAGE_PADDING_Y), 0)
-        If totalHeight < Me.ActualHeight - scrollbarHHeight Then
-            y = (((Me.ActualHeight - scrollbarHHeight) - (totalHeight)) / 2) + (PAGE_PADDING_Y / 2)
-        Else
-            y = -(scrollBarV.Value - (firstPosY)) + (PAGE_PADDING_Y / 2)
-        End If
-
         ' get y to draw i'th page
-        Dim posY As Double = y 'y + (_p(i).Height + PAGE_PADDING_Y) * (i - index)
-        For z = index To i - 1
+        Dim posY As Double = -scrollBarV.Value + PAGE_PADDING_Y
+        For z = 0 To i - 1
             posY += (_p(z).Height + PAGE_PADDING_Y)
         Next
 
