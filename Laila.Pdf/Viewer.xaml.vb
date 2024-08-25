@@ -1092,6 +1092,18 @@ Public Class Viewer
                                 _p(i).WritableBitmapPageOriginal = New WriteableBitmap(
                                         r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
 
+                                ' white background
+                                Dim stride As Integer = Math.Abs(_p(i).WritableBitmapPageOriginal.BackBufferStride)
+                                Dim bytes As Integer = stride * _p(i).WritableBitmapPageOriginal.PixelHeight
+                                Dim rgbValues(bytes - 1) As Byte
+                                For j = 0 To rgbValues.Count - 1
+                                    rgbValues(j) = 255
+                                Next
+                                _p(i).WritableBitmapPageOriginal.WritePixels(
+                                    New Int32Rect(0, 0, _p(i).WritableBitmapPageOriginal.PixelWidth, _p(i).WritableBitmapPageOriginal.PixelHeight),
+                                    rgbValues, stride, 0)
+
+                                ' render page
                                 _doc.Pages(i).RenderPage(_p(i).WritableBitmapPageOriginal)
 
                                 _p(i).DoResetWritableBitmapPage = True
@@ -1226,7 +1238,6 @@ Public Class Viewer
 
                             ' draw page border
                             drawingContext.DrawRectangle(Media.Brushes.Black, New Media.Pen(), New Rect(r.X + 3, r.Y + 3, r.Width, r.Height))
-                            drawingContext.DrawRectangle(Media.Brushes.White, New Media.Pen(), New Rect(r.X, r.Y, r.Width, r.Height))
 
                             drawingContext.DrawImage(_p(i).WritableBitmapPage, New Rect(r.X, r.Y, r.Width, r.Height))
                             drawingContext.DrawImage(_p(i).WritableBitmapForm, New Rect(r.X, r.Y, r.Width, r.Height))
