@@ -392,6 +392,13 @@ Public Class Viewer
                 If _doc.Pages(pageIndex).Form.OnKeyDown(modifier, k) Then
                     If e.Key <> Key.Space Then e.Handled = True
                 End If
+
+                ' fix for backspace
+                If k = 8 Then
+                    If _doc.Pages(pageIndex).Form.OnChar(modifier, 8) Then
+                        e.Handled = True
+                    End If
+                End If
             End If
         End If
     End Sub
@@ -1055,7 +1062,7 @@ Public Class Viewer
 
                             If _p(i).WritableBitmapForm Is Nothing Then
                                 Dim wbForm As WriteableBitmap = New WriteableBitmap(
-                                        _p(i).Width, _p(i).Height, 96, 96, PixelFormats.Bgra32, Nothing)
+                                        r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
                                 _doc.Pages(i).RenderForm(wbForm)
 
                                 wbForm.Lock()
@@ -1084,20 +1091,8 @@ Public Class Viewer
                                 ' ...get page bitmap
                                 _p(i).WritableBitmapPageOriginal = New WriteableBitmap(
                                         r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
-                                _doc.Pages(i).RenderPage(_p(i).WritableBitmapPageOriginal)
 
-                                Using bmpPage = New Bitmap(_p(i).WritableBitmapPageOriginal.PixelWidth, _p(i).WritableBitmapPageOriginal.PixelHeight,
-                                                _p(i).WritableBitmapPageOriginal.BackBufferStride, Imaging.PixelFormat.Format32bppPArgb, _p(i).WritableBitmapPageOriginal.BackBuffer)
-                                    Using bmpPage2 = New Bitmap(_p(i).WritableBitmapPageOriginal.PixelWidth, _p(i).WritableBitmapPageOriginal.PixelHeight, Imaging.PixelFormat.Format32bppPArgb)
-                                        Using g = Graphics.FromImage(bmpPage2)
-                                            g.FillRectangle(System.Drawing.Brushes.White, New Rectangle(0, 0, bmpPage.Width, bmpPage.Height))
-                                            g.DrawImage(bmpPage, New PointF(0, 0))
-                                        End Using
-                                        Using g = Graphics.FromImage(bmpPage)
-                                            g.DrawImage(bmpPage2, New PointF(0, 0))
-                                        End Using
-                                    End Using
-                                End Using
+                                _doc.Pages(i).RenderPage(_p(i).WritableBitmapPageOriginal)
 
                                 _p(i).DoResetWritableBitmapPage = True
                             End If
@@ -1231,6 +1226,7 @@ Public Class Viewer
 
                             ' draw page border
                             drawingContext.DrawRectangle(Media.Brushes.Black, New Media.Pen(), New Rect(r.X + 3, r.Y + 3, r.Width, r.Height))
+                            drawingContext.DrawRectangle(Media.Brushes.White, New Media.Pen(), New Rect(r.X, r.Y, r.Width, r.Height))
 
                             drawingContext.DrawImage(_p(i).WritableBitmapPage, New Rect(r.X, r.Y, r.Width, r.Height))
                             drawingContext.DrawImage(_p(i).WritableBitmapForm, New Rect(r.X, r.Y, r.Width, r.Height))
