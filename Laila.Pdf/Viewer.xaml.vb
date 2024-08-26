@@ -563,22 +563,21 @@ Public Class Viewer
                         Dim p3 = _doc.Pages(pageIndex).DeviceToPage((0, 0, _doc.Pages(pageIndex).Width, _doc.Pages(pageIndex).Height), p4.X, p4.Y)
                         Dim charIndex As Integer = _doc.Pages(pageIndex).TextPage.GetCharIndexAtPos(p3.X, p3.Y, 5, 5)
                         If charIndex <> -1 Then
-                            Dim textIndex As Integer = _doc.Pages(pageIndex).TextPage.GetTextIndexFromCharIndex(charIndex)
                             Dim text As String = _doc.Pages(pageIndex).TextPage.GetText(0, _doc.Pages(pageIndex).TextPage.CountChars)
-                            If text.Substring(textIndex, 1) <> " " AndAlso text.Substring(textIndex, 1) <> vbCr AndAlso text.Substring(textIndex, 1) <> vbLf Then
+                            If text.Substring(charIndex, 1) <> " " AndAlso text.Substring(charIndex, 1) <> vbCr AndAlso text.Substring(charIndex, 1) <> vbLf Then
                                 _selection.StartPageIndex = pageIndex
                                 _selection.EndPageIndex = pageIndex
-                                _selection.StartTextIndex = textIndex
+                                _selection.StartTextIndex = charIndex
                                 Dim i As Integer
-                                For i = textIndex To 0 Step -1
+                                For i = charIndex To 0 Step -1
                                     If text.Substring(i, 1) = " " OrElse text.Substring(i, 1) = vbCr OrElse text.Substring(i, 1) = vbLf Then
                                         _selection.StartTextIndex = i + 1
                                         Exit For
                                     End If
                                 Next
                                 If i <= 0 Then _selection.StartTextIndex = 0
-                                _selection.EndTextIndex = textIndex
-                                For i = textIndex To _doc.Pages(pageIndex).TextPage.CountChars - 1
+                                _selection.EndTextIndex = charIndex
+                                For i = charIndex To _doc.Pages(pageIndex).TextPage.CountChars - 1
                                     If text.Substring(i, 1) = " " OrElse text.Substring(i, 1) = vbCr OrElse text.Substring(i, 1) = vbLf Then
                                         _selection.EndTextIndex = i
                                         Exit For

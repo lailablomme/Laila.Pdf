@@ -1,7 +1,5 @@
 ﻿Imports System.ComponentModel
 Imports System.IO
-Imports Laila.PdfiumCore.Printer
-Imports Laila.PfdiumCore.Viewer
 Imports Microsoft.Win32
 
 Class MainWindow
