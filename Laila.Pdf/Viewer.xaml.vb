@@ -1,11 +1,7 @@
 ﻿Imports System.ComponentModel
 Imports System.Drawing
-Imports System.Drawing.Imaging
 Imports System.IO
-Imports System.Reflection.Metadata
 Imports System.Runtime.CompilerServices
-Imports System.Runtime.CompilerServices.RuntimeHelpers
-Imports System.Runtime.InteropServices
 Imports System.Text
 Imports System.Threading
 Imports System.Windows
@@ -14,7 +10,6 @@ Imports System.Windows.Input
 Imports System.Windows.Markup
 Imports System.Windows.Media
 Imports System.Windows.Media.Imaging
-Imports System.Windows.Threading
 Imports PDFiumSharp
 Imports PDFiumSharp.Types
 
@@ -1320,27 +1315,29 @@ Public Class Viewer
     End Function
 
     Private Function getPageByPoint(p As System.Windows.Point) As Integer
-        If Not _p Is Nothing AndAlso _p.Count > 0 Then
-            ' find the first page to draw
-            Dim index As Integer = getFirstVisiblePageIndex()
+        SyncLock _docLock
+            If Not _p Is Nothing AndAlso _p.Count > 0 Then
+                ' find the first page to draw
+                Dim index As Integer = getFirstVisiblePageIndex()
 
-            ' get the number of pages to draw
-            Dim count As Integer = Math.Ceiling(scrollBarV.ViewportSize / (_p(0).Height + PAGE_PADDING_Y)) + 1
+                ' get the number of pages to draw
+                Dim count As Integer = Math.Ceiling(scrollBarV.ViewportSize / (_p(0).Height + PAGE_PADDING_Y)) + 1
 
-            ' check if point is in page
-            For i = index To index + count
-                If i < _p.Count Then
-                    Dim r As Rectangle = getPageRectangle(i)
-                    If (p.X = -1 OrElse (p.X > r.Left And p.X < r.Right)) And p.Y > r.Top And p.Y < r.Bottom Then
-                        ' point is in page
-                        Return i
+                ' check if point is in page
+                For i = index To index + count
+                    If i < _p.Count Then
+                        Dim r As Rectangle = getPageRectangle(i)
+                        If (p.X = -1 OrElse (p.X > r.Left And p.X < r.Right)) And p.Y > r.Top And p.Y < r.Bottom Then
+                            ' point is in page
+                            Return i
+                        End If
                     End If
-                End If
-            Next
-        End If
+                Next
+            End If
 
-        ' not on page
-        Return -1
+            ' not on page
+            Return -1
+        End SyncLock
     End Function
 
     Protected Overrides Sub OnMouseWheel(e As MouseWheelEventArgs)
