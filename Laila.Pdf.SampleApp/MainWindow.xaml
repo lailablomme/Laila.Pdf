@@ -16,6 +16,7 @@
 
         <StackPanel Grid.Row="0" Orientation="Horizontal">
             <Button x:Name="openPDFButton">Open PDF</Button>
+            <Button x:Name="refreshPDFButton">Refresh</Button>
             <Button x:Name="savePDFButton">Save PDF</Button>
             <Button x:Name="fitToWidthButton">Fit to width</Button>
             <Button x:Name="fitToHeightButton">Fit to height</Button>

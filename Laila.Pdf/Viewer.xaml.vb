@@ -799,7 +799,10 @@ Public Class Viewer
 
                 SyncLock _docLock
                     If Not _doc Is Nothing Then
-                        CType(_doc, IDisposable).Dispose()
+                        Application.Current.Dispatcher.Invoke(
+                            Sub()
+                                CType(_doc, IDisposable).Dispose()
+                            End Sub)
                     End If
 
                     _p = New List(Of PageData)()
@@ -808,7 +811,13 @@ Public Class Viewer
                     _fullText = Nothing
 
                     Try
-                        _doc = New PdfDocument(bytes, 0, bytes.Length)
+                        Application.Current.Dispatcher.Invoke(
+                            Sub()
+                                _doc = New PdfDocument(bytes, 0, bytes.Length)
+
+                                For Each page In _doc.Pages
+                                Next
+                            End Sub)
 
                         ' get full text of PDF
                         Dim pageIndex As Integer = 0
@@ -822,11 +831,13 @@ Public Class Viewer
                                 text = page.TextPage.GetText(0, page.TextPage.CountChars)
                             End If
 
-                            ' filter text and store indexes
+                            ' filter text  
+                            _fullText &= text.Replace(Chr(32), "").Replace(Chr(13), "").Replace(Chr(10), "")
+
+                            ' store indexes
                             Dim charIndex As Integer = 0
                             For Each c In text.ToCharArray()
                                 If c <> Chr(32) AndAlso c <> Chr(13) AndAlso c <> Chr(10) Then
-                                    _fullText &= c
                                     _charPos.Add(totalCharIndex, New Tuple(Of Integer, Integer)(charIndex, pageIndex))
                                     totalCharIndex += 1
                                 End If
@@ -835,12 +846,11 @@ Public Class Viewer
                             pageIndex += 1
                         Next
                     Catch ex As Exception
-                        appl.Dispatcher.Invoke(
+                        appl.Dispatcher.BeginInvoke(
                             Sub()
                                 Me.IsLoading = False
                                 errorGrid.Visibility = Visibility.Visible
                                 errorTextBlock.Text = Me.GetExceptionText(ex)
-                                Debug.WriteLine("invalidate ln 831")
                                 Me.InvalidateVisual()
                             End Sub)
                         Return
@@ -906,18 +916,18 @@ Public Class Viewer
                                 Sub()
                                     Dim button As MessageBoxButton
                                     Select Case buttonType
-                                        Case buttonType.Ok : button = MessageBoxButton.OK
-                                        Case buttonType.OkCancel : button = MessageBoxButton.OKCancel
-                                        Case buttonType.YesNo : button = MessageBoxButton.YesNo
-                                        Case buttonType.YesNoCancel : button = MessageBoxButton.YesNoCancel
+                                        Case ButtonType.Ok : button = MessageBoxButton.OK
+                                        Case ButtonType.OkCancel : button = MessageBoxButton.OKCancel
+                                        Case ButtonType.YesNo : button = MessageBoxButton.YesNo
+                                        Case ButtonType.YesNoCancel : button = MessageBoxButton.YesNoCancel
                                     End Select
 
                                     Dim icon As MessageBoxImage
                                     Select Case iconType
-                                        Case iconType.Error : icon = MessageBoxImage.Asterisk
-                                        Case iconType.Information : icon = MessageBoxImage.Information
-                                        Case iconType.Question : icon = MessageBoxImage.Question
-                                        Case iconType.Warning : icon = MessageBoxImage.Warning
+                                        Case IconType.Error : icon = MessageBoxImage.Asterisk
+                                        Case IconType.Information : icon = MessageBoxImage.Information
+                                        Case IconType.Question : icon = MessageBoxImage.Question
+                                        Case IconType.Warning : icon = MessageBoxImage.Warning
                                     End Select
 
                                     Select Case Me.OnAppAlert(msg, title, button, icon)
@@ -931,18 +941,16 @@ Public Class Viewer
                         Return result
                     End Function
 
-                For Each page In _doc.Pages
-                    Await appl.Dispatcher.BeginInvoke(
-                        Sub()
+                Await appl.Dispatcher.BeginInvoke(
+                    Sub()
+                        For Each page In _doc.Pages
                             _p.Add(New PageData() With {
                                 .Zoom = Me.Zoom,
                                 .PageWidth = page.Width,
                                 .PageHeight = page.Height
                             })
-                        End Sub)
-                Next
-                appl.Dispatcher.Invoke(
-                    Sub()
+                        Next
+
                         scrollBarV.Visibility = Visibility.Visible
                         scrollBarH.Visibility = Visibility.Visible
 
@@ -1024,9 +1032,9 @@ Public Class Viewer
         Dim scrollbarVWidth As Integer = If(scrollBarV.Width = Double.NaN OrElse scrollBarV.Visibility <> Visibility.Visible, 0, scrollBarV.Width)
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
         drawingContext.PushClip(New RectangleGeometry(New Rect(0, 0, Me.ActualWidth, Me.ActualHeight)))
-        If Me.ActualWidth - scrollbarVWidth > 0 AndAlso Me.ActualHeight - scrollbarHHeight > 0 Then
-            Dim _didClear As Boolean = False
+        drawingContext.DrawRectangle(Media.Brushes.Gray, New Media.Pen(), New Rect(0, 0, Me.ActualWidth, Me.ActualHeight))
 
+        If Me.ActualWidth - scrollbarVWidth > 0 AndAlso Me.ActualHeight - scrollbarHHeight > 0 Then
             SyncLock _docLock
                 If Not _p Is Nothing AndAlso _p.Count > 0 Then
                     ' find the first page to draw
@@ -1223,12 +1231,6 @@ Public Class Viewer
                             ' draw page bitmap
                             Dim sw2 As Stopwatch = New Stopwatch()
                             sw2.Start()
-
-                            If Not _didClear Then
-                                ' clear area
-                                drawingContext.DrawRectangle(Media.Brushes.Gray, New Media.Pen(), New Rect(0, 0, Me.ActualWidth, Me.ActualHeight))
-                                _didClear = True
-                            End If
 
                             ' draw page border
                             drawingContext.DrawRectangle(Media.Brushes.Black, New Media.Pen(), New Rect(r.X + 3, r.Y + 3, r.Width, r.Height))
@@ -1531,14 +1533,16 @@ Public Class Viewer
 
     Public Sub FitToWidth()
         Dim i As Integer = getCenteredPageIndex()
-        Me.ZoomTo((scrollBarH.ViewportSize - SystemParameters.VerticalScrollBarWidth - 10) / (_p(i).OriginalWidth) * 100, 0, 0)
+        Dim z As Double = (scrollBarH.ViewportSize - scrollBarV.Width - 10) / (_p(i).OriginalWidth) * 100
+        Me.ZoomTo(z, 0, 0)
         Dim p As System.Drawing.Point = getAbsolutePagePosition(i)
         scrollBarH.Value = p.X
     End Sub
 
     Public Sub FitToHeight()
         Dim i As Integer = getCenteredPageIndex()
-        Me.ZoomTo((scrollBarV.ViewportSize - SystemParameters.HorizontalScrollBarHeight - 10) / (_p(i).OriginalHeight) * 100, 0, 0)
+        Dim z As Double = (scrollBarV.ViewportSize - scrollBarH.Height - 10) / (_p(i).OriginalHeight) * 100
+        Me.ZoomTo(z, 0, 0)
         Dim p As System.Drawing.Point = getAbsolutePagePosition(i)
         scrollBarV.Value = p.Y
     End Sub

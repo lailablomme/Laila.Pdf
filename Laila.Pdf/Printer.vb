@@ -2,6 +2,7 @@
 Imports System.Drawing.Printing
 Imports System.IO
 Imports System.Threading
+Imports System.Windows
 Imports System.Windows.Media
 Imports System.Windows.Media.Imaging
 Imports PDFiumSharp
@@ -30,7 +31,14 @@ Public Class Printer
     Private Async Function export(ByVal bytes As Byte()) As Task
         Await _lock.WaitAsync()
         Try
-            Using document = New PdfDocument(bytes, 0, bytes.Length)
+            Dim document As PdfDocument = Nothing
+            Application.Current.Dispatcher.Invoke(
+                Sub()
+                    document = New PdfDocument(bytes, 0, bytes.Length)
+                    For Each page In document.Pages
+                    Next
+                End Sub)
+            Using document
                 For Each page In document.Pages
                     Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 4, page.Height * 4, 96, 96, PixelFormats.Bgra32, Nothing)
                     page.RenderPage(writableBitmap)

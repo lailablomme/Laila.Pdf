@@ -16,8 +16,8 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical" x:Name="scrollBarV" Visibility="Collapsed" />
-        <ScrollBar Grid.Row="1" Grid.Column="0" Orientation="Horizontal" x:Name="scrollBarH" Visibility="Collapsed" />
+        <ScrollBar Grid.Row="0" Grid.Column="1" Orientation="Vertical" x:Name="scrollBarV" Visibility="Visible" />
+        <ScrollBar Grid.Row="1" Grid.Column="0" Orientation="Horizontal" x:Name="scrollBarH" Visibility="Visible" />
         <Border Grid.Row="1" Grid.Column="1" x:Name="border">
             <Border.Background>
                 <LinearGradientBrush MappingMode="Absolute" StartPoint="0,0" EndPoint="4,4" SpreadMethod="Repeat">

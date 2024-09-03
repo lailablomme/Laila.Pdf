@@ -1,5 +1,6 @@
 ﻿Imports System.ComponentModel
 Imports System.IO
+Imports System.Security.Cryptography
 Imports Microsoft.Win32
 
 Class MainWindow
@@ -11,13 +12,19 @@ Class MainWindow
     Private _currentMatchIndex As Integer = 0
     Private _numberOfMatches As Integer = 0
     Private _tool As Tool = Tool.Zoom
+    Private _fileName As String
 
     Private Sub openPDFButton_Click(sender As Object, e As RoutedEventArgs) Handles openPDFButton.Click
         Dim ofd As OpenFileDialog = New OpenFileDialog()
         ofd.Filter = "PDF files (*.pdf)|*.pdf|All files (*.*)|*.*"
         If ofd.ShowDialog() Then
+            _fileName = ofd.FileName
             viewer.Document = File.ReadAllBytes(ofd.FileName)
         End If
+    End Sub
+
+    Private Sub refreshPDFButton_Click(sender As Object, e As RoutedEventArgs) Handles refreshPDFButton.Click
+        viewer.Document = File.ReadAllBytes("c:\users\lblm\documents\Free_Test_Data_1MB_PDF.pdf")
     End Sub
 
     Private Sub savePDFButton_Click(sender As Object, e As RoutedEventArgs) Handles savePDFButton.Click
@@ -40,9 +47,11 @@ Class MainWindow
         viewer.CopyTextToClipboard()
     End Sub
 
-    Private Sub printButton_Click(sender As Object, e As RoutedEventArgs) Handles printButton.Click
+    Private Async Sub printButton_Click(sender As Object, e As RoutedEventArgs) Handles printButton.Click
+        Me.Cursor = Cursors.Wait
         Dim printer As Printer = New Printer()
-        printer.Print("pdf", viewer.Save())
+        Await printer.Print("pdf", viewer.Save())
+        Me.Cursor = Nothing
     End Sub
 
     Private Sub prevMatchButton_Click(sender As Object, e As RoutedEventArgs) Handles prevMatchButton.Click

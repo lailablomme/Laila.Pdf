@@ -1,5 +1,5 @@
 # Laila.Pdf
-A .NET6 Pdfium-based viewer featuring smooth scrolling, text selecting and copying, search and basic PDF forms support and a .NET6 PDF printer.
+A .NET6 WPF Pdfium-based viewer featuring smooth scrolling, text selecting and copying, search and basic PDF forms support and a .NET6 PDF printer.
 
 Written using an extended version of [PDFiumSharp](https://github.com/ArgusMagnus/PDFiumSharp) to which I added PDF forms support.
 
