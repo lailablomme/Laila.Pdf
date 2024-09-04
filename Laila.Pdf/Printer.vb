@@ -40,13 +40,30 @@ Public Class Printer
                 End Sub)
             Using document
                 For Each page In document.Pages
-                    Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 4, page.Height * 4, 96, 96, PixelFormats.Bgra32, Nothing)
+                    Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 3, page.Height * 3, 96, 96, PixelFormats.Bgr32, Nothing)
+
+                    ' white background
+                    Dim stride As Integer = Math.Abs(writableBitmap.BackBufferStride)
+                    Dim byteCount As Integer = stride * writableBitmap.PixelHeight
+                    Dim rgbValues(byteCount - 1) As Byte
+                    For j = 0 To rgbValues.Count - 1
+                        rgbValues(j) = 255
+                    Next
+                    writableBitmap.WritePixels(
+                        New Int32Rect(0, 0, writableBitmap.PixelWidth, writableBitmap.PixelHeight),
+                        rgbValues, stride, 0)
+
+                    ' render page
                     page.RenderPage(writableBitmap)
                     page.RenderForm(writableBitmap)
+
+                    ' save to png
                     Dim mem As MemoryStream = New MemoryStream()
                     Dim encoder As PngBitmapEncoder = New PngBitmapEncoder()
                     encoder.Frames.Add(BitmapFrame.Create(writableBitmap))
                     encoder.Save(mem)
+
+                    ' add to streams
                     _streamsPage.Add(mem)
                     _isLandscape.Add(page.Width > page.Height)
                 Next
