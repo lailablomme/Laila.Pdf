@@ -55,6 +55,11 @@
                 <Run>IsTextSelected:</Run>
                 <Run Text="{Binding IsTextSelected, ElementName=viewer}" />
             </TextBlock>
+            <TextBlock Margin="25,0,0,0">Print progress:</TextBlock>
+            <ProgressBar Maximum="{Binding TotalPages, ElementName=w}" Value="{Binding CurrentPage, ElementName=w}" Width="150" />
+            <TextBlock Text="{Binding CurrentPage, ElementName=w}" />
+            <TextBlock>/</TextBlock>
+            <TextBlock Text="{Binding TotalPages, ElementName=w}" />
         </StackPanel>
     </Grid>
 </Window>

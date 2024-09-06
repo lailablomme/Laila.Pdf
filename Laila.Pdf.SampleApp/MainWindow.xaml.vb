@@ -13,6 +13,8 @@ Class MainWindow
     Private _numberOfMatches As Integer = 0
     Private _tool As Tool = Tool.Zoom
     Private _fileName As String
+    Private _totalPages As Integer
+    Private _currentPage As Integer
 
     Private Sub openPDFButton_Click(sender As Object, e As RoutedEventArgs) Handles openPDFButton.Click
         Dim ofd As OpenFileDialog = New OpenFileDialog()
@@ -47,10 +49,18 @@ Class MainWindow
         viewer.CopyTextToClipboard()
     End Sub
 
-    Private Async Sub printButton_Click(sender As Object, e As RoutedEventArgs) Handles printButton.Click
+    Private Sub printButton_Click(sender As Object, e As RoutedEventArgs) Handles printButton.Click
         Me.Cursor = Cursors.Wait
-        Dim printer As Printer = New Printer()
-        Await printer.Print("pdf", viewer.Save())
+        Dim printer As XpsPrinter = New XpsPrinter()
+        AddHandler printer.PrintProgress,
+            Sub(s As Object, e2 As XpsPrinter.PrintProgressEventArgs)
+                Me.TotalPages = e2.TotalPages
+                Me.CurrentPage = e2.CurrentPage
+                Application.Current.Dispatcher.Invoke(
+                    Sub()
+                    End Sub, Windows.Threading.DispatcherPriority.ContextIdle)
+            End Sub
+        printer.Print("pdf", viewer.Save())
         Me.Cursor = Nothing
     End Sub
 
@@ -117,6 +127,26 @@ Class MainWindow
         Set(value As Boolean)
             _isTextSelected = value
             RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs("IsTextSelected"))
+        End Set
+    End Property
+
+    Public Property TotalPages As Integer
+        Get
+            Return _totalPages
+        End Get
+        Set(value As Integer)
+            _totalPages = value
+            RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs("TotalPages"))
+        End Set
+    End Property
+
+    Public Property CurrentPage As Integer
+        Get
+            Return _currentPage
+        End Get
+        Set(value As Integer)
+            _currentPage = value
+            RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs("CurrentPage"))
         End Set
     End Property
 
