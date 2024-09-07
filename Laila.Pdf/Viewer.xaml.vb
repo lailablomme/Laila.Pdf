@@ -1,4 +1,5 @@
 ﻿Imports System.ComponentModel
+Imports System.Diagnostics.Metrics
 Imports System.Drawing
 Imports System.IO
 Imports System.Runtime.CompilerServices
@@ -1133,24 +1134,56 @@ Public Class Viewer
                                         r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
                                 _doc.Pages(i).RenderForm(wbForm)
 
-                                wbForm.Lock()
-                                Using bmpForm = New Bitmap(wbForm.PixelWidth, wbForm.PixelHeight,
-                                            wbForm.BackBufferStride, Imaging.PixelFormat.Format32bppPArgb, wbForm.BackBuffer)
-                                    Using g = Graphics.FromImage(bmpForm)
-                                        For Each item In _selectedRects
-                                            If item.pageIndex = i Then
-                                                ' translate coordinates to device
-                                                Dim p4 = _doc.Pages(i).PageToDevice((0, 0, wbForm.PixelWidth, wbForm.PixelHeight), item.rect.Left, item.rect.Top)
-                                                Dim p5 = _doc.Pages(i).PageToDevice((0, 0, wbForm.PixelWidth, wbForm.PixelHeight), item.rect.Right, item.rect.Bottom)
-                                                g.FillRectangle(
-                                                        New System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(&H33, Colors.Blue.R, Colors.Blue.G, Colors.Blue.B)),
-                                                        New Rectangle(p4.X, p4.Y, p5.X - p4.X, p5.Y - p4.Y))
-                                            End If
+                                Dim stride As Integer = Math.Abs(wbForm.BackBufferStride)
+                                Dim bytes As Integer = stride * wbForm.PixelHeight
+                                Dim rgbValues(bytes - 1) As Byte
+                                Dim rgbValuesOriginal(bytes - 1) As Byte
+                                Dim w As Integer = wbForm.PixelWidth, h As Integer = wbForm.PixelHeight
+
+                                ' copy original bitmap
+                                wbForm.CopyPixels(rgbValues, stride, 0)
+                                wbForm.CopyPixels(rgbValuesOriginal, stride, 0)
+
+                                For Each item In _selectedRects
+                                    If item.pageIndex = i Then
+                                        ' translate coordinates to device
+                                        Dim p4 = _doc.Pages(i).PageToDevice((0, 0, wbForm.PixelWidth, wbForm.PixelHeight), item.rect.Left, item.rect.Top)
+                                        Dim p5 = _doc.Pages(i).PageToDevice((0, 0, wbForm.PixelWidth, wbForm.PixelHeight), item.rect.Right, item.rect.Bottom)
+
+                                        ' fill rectangle
+                                        For x = p4.X To p5.X
+                                            For y = p4.Y To p5.Y
+                                                If x >= 0 AndAlso x < w AndAlso y >= 0 AndAlso y < h Then
+                                                    Try
+                                                        ' first put transparent areas on white background:
+                                                        Dim t As Double = 1.0 * rgbValuesOriginal(4 * x + stride * y + 3) / 255 ' transparency Of pixel between 0 .. 1 , easier To Do math With this
+                                                        Dim rt As Double = 1 - t ' inverted value of transparency
+                                                        ' C = C * t + W * (1-t) // alpha transparency for this case C-color, W-white (255)
+                                                        ' same for each color
+                                                        rgbValuesOriginal(4 * x + stride * y + 0) = (rgbValuesOriginal(4 * x + stride * y + 0) * t + 255 * rt) ' R color
+                                                        rgbValuesOriginal(4 * x + stride * y + 1) = (rgbValuesOriginal(4 * x + stride * y + 1) * t + 255 * rt) ' G color
+                                                        rgbValuesOriginal(4 * x + stride * y + 2) = (rgbValuesOriginal(4 * x + stride * y + 2) * t + 255 * rt) ' B color
+                                                        rgbValuesOriginal(4 * x + stride * y + 3) = 255 ' A = 255 => no transparency                                                         
+
+                                                        ' now invert to blue
+                                                        rgbValues(4 * x + stride * y + 0) = rgbValuesOriginal(4 * x + stride * y + 0)
+                                                        rgbValues(4 * x + stride * y + 1) = 255 - rgbValuesOriginal(4 * x + stride * y + 1)
+                                                        rgbValues(4 * x + stride * y + 2) = 255 - rgbValuesOriginal(4 * x + stride * y + 2)
+                                                        rgbValues(4 * x + stride * y + 3) = rgbValuesOriginal(4 * x + stride * y + 3)
+                                                    Catch ex As Exception
+                                                        ' no idea why as of yet
+                                                        Debug.WriteLine("unhandled ex: " & ex.Message)
+                                                    End Try
+                                                End If
+                                            Next
                                         Next
-                                    End Using
-                                End Using
-                                wbForm.AddDirtyRect(New Int32Rect(0, 0, wbForm.PixelWidth, wbForm.PixelHeight))
-                                wbForm.Unlock()
+                                    End If
+                                Next
+
+                                ' copy back
+                                wbForm.WritePixels(
+                                    New Int32Rect(0, 0, wbForm.PixelWidth, wbForm.PixelHeight),
+                                    rgbValues, stride, 0)
 
                                 _p(i).WritableBitmapForm = wbForm
                             End If
@@ -1193,7 +1226,7 @@ Public Class Viewer
                                     OrElse r.Width <> _p(i).WritableBitmapPage.PixelWidth _
                                     OrElse r.Height <> _p(i).WritableBitmapPage.PixelHeight Then
                                     _p(i).WritableBitmapPage = New WriteableBitmap(
-                                    r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
+                                        r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
                                 End If
 
                                 Dim w As Integer = _p(i).WritableBitmapPage.PixelWidth, h As Integer = _p(i).WritableBitmapPage.PixelHeight
@@ -1672,6 +1705,7 @@ Public Class Viewer
                     totalWidth = page.Width + PAGE_PADDING_Y
                 End If
                 page.WritableBitmapPageOriginal = Nothing
+                page.WritableBitmapForm = Nothing
             Next
 
             ' reset scrollbars

@@ -33,10 +33,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Drawing.Common" Version="8.0.4" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\PDFiumSharpExt.WPF\PDFiumSharpExt.WPF.csproj" PrivateAssets="All" />
     <ProjectReference Include="..\PDFiumSharpExt\PDFiumSharpExt.csproj" PrivateAssets="All" />
   </ItemGroup>

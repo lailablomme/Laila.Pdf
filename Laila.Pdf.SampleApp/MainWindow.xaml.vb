@@ -51,16 +51,16 @@ Class MainWindow
 
     Private Sub printButton_Click(sender As Object, e As RoutedEventArgs) Handles printButton.Click
         Me.Cursor = Cursors.Wait
-        Dim printer As XpsPrinter = New XpsPrinter()
+        Dim printer As Printer = New Printer()
         AddHandler printer.PrintProgress,
-            Sub(s As Object, e2 As XpsPrinter.PrintProgressEventArgs)
+            Sub(s As Object, e2 As Printer.PrintProgressEventArgs)
                 Me.TotalPages = e2.TotalPages
                 Me.CurrentPage = e2.CurrentPage
                 Application.Current.Dispatcher.Invoke(
                     Sub()
                     End Sub, Windows.Threading.DispatcherPriority.ContextIdle)
             End Sub
-        printer.Print("pdf", viewer.Save(), "\\rvprt01\PR-KWA")
+        printer.Print("pdf", viewer.Save())
         Me.Cursor = Nothing
     End Sub
 

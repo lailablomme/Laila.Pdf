@@ -1,136 +1,127 @@
-﻿Imports System.Drawing
-Imports System.Drawing.Printing
-Imports System.IO
+﻿Imports System.Printing
 Imports System.Threading
 Imports System.Windows
+Imports System.Windows.Controls
+Imports System.Windows.Documents
+Imports System.Windows.Documents.Serialization
+Imports System.Windows.Markup
 Imports System.Windows.Media
 Imports System.Windows.Media.Imaging
+Imports System.Windows.Xps
 Imports PDFiumSharp
 
 Public Class Printer
-    Private _currentPageIndex As Integer
-    Private _streamsPage As IList(Of Stream)
-    Private _isLandscape As List(Of Boolean)
-    Private Shared _lock As SemaphoreSlim = New SemaphoreSlim(1, 1)
+    Public Event PrintProgress(sender As Object, e As PrintProgressEventArgs)
+    Public Event PrintCompleted(sender As Object, e As EventArgs)
 
-    Public Async Function Print(displayName As String, bytes As Byte(), Optional printerName As String = Nothing, Optional twoSided As Boolean? = True) As Task
-        Dim f As Func(Of Task) =
-            Async Function() As Task
-                ' print
-                _streamsPage = New List(Of Stream)()
-                _isLandscape = New List(Of Boolean)
-                Await export(bytes)
-                For Each stream As Stream In _streamsPage
-                    stream.Position = 0
-                Next
-                printPDF(displayName, printerName, twoSided)
-            End Function
-        Await Task.Run(f)
-    End Function
+    Public Sub Print(displayName As String, bytes As Byte(), Optional printerName As String = Nothing,
+                     Optional isTwoSided As Boolean? = True)
+        Dim t As Thread = New Thread(New ThreadStart(
+            Sub()
+                Dim images As List(Of ImageSource) = New List(Of ImageSource)()
 
-    Private Async Function export(ByVal bytes As Byte()) As Task
-        Await _lock.WaitAsync()
-        Try
-            Application.Current.Dispatcher.Invoke(
-                Sub()
-                    Dim document As PdfDocument = Nothing
-                    document = New PdfDocument(bytes, 0, bytes.Length)
-                    Using document
-                        For Each page In document.Pages
-                            Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 3, page.Height * 3, 96, 96, PixelFormats.Bgr32, Nothing)
+                ' render document
+                Using pdfDocument = New PdfDocument(bytes, 0, bytes.Length)
+                    RaiseEvent PrintProgress(Me, New PrintProgressEventArgs() With {
+                        .TotalPages = pdfDocument.Pages.Count,
+                        .CurrentPage = 0
+                    })
 
-                            ' white background
-                            Dim stride As Integer = Math.Abs(writableBitmap.BackBufferStride)
-                            Dim byteCount As Integer = stride * writableBitmap.PixelHeight
-                            Dim rgbValues(byteCount - 1) As Byte
-                            For j = 0 To rgbValues.Count - 1
-                                rgbValues(j) = 255
-                            Next
-                            writableBitmap.WritePixels(
-                                New Int32Rect(0, 0, writableBitmap.PixelWidth, writableBitmap.PixelHeight),
-                                rgbValues, stride, 0)
+                    For Each page In pdfDocument.Pages
+                        Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 3, page.Height * 3, 96, 96, PixelFormats.Bgr32, Nothing)
 
-                            ' render page
-                            page.RenderPage(writableBitmap)
-                            page.RenderForm(writableBitmap)
-
-                            ' save to png
-                            Dim mem As MemoryStream = New MemoryStream()
-                            Dim encoder As PngBitmapEncoder = New PngBitmapEncoder()
-                            encoder.Frames.Add(BitmapFrame.Create(writableBitmap))
-                            encoder.Save(mem)
-
-                            ' add to streams
-                            _streamsPage.Add(mem)
-                            _isLandscape.Add(page.Width > page.Height)
+                        ' white background
+                        Dim stride As Integer = Math.Abs(writableBitmap.BackBufferStride)
+                        Dim byteCount As Integer = stride * writableBitmap.PixelHeight
+                        Dim rgbValues(byteCount - 1) As Byte
+                        For j = 0 To rgbValues.Count - 1
+                            rgbValues(j) = 255
                         Next
-                    End Using
-                End Sub)
-        Finally
-            _lock.Release()
-        End Try
-    End Function
+                        writableBitmap.WritePixels(
+                            New Int32Rect(0, 0, writableBitmap.PixelWidth, writableBitmap.PixelHeight),
+                            rgbValues, stride, 0)
 
-    Private Sub printPage(ByVal sender As Object, ByVal e As PrintPageEventArgs)
-        Dim pageBitmap As Image = Nothing
-        pageBitmap = Image.FromStream(_streamsPage(_currentPageIndex))
+                        ' render page
+                        page.RenderPage(writableBitmap)
+                        page.RenderForm(writableBitmap)
 
-        ' Adjust rectangular area with printer margins.
-        Dim adjustedRect As System.Drawing.Rectangle =
-            New System.Drawing.Rectangle(e.PageBounds.Left - CInt(e.PageSettings.HardMarginX),
-                                         e.PageBounds.Top - CInt(e.PageSettings.HardMarginY),
-                                         e.PageBounds.Width,
-                                         e.PageBounds.Height)
+                        ' add to list
+                        images.Add(writableBitmap)
+                    Next
+                End Using
 
-        ' Draw a white background for the report
-        e.Graphics.FillRectangle(System.Drawing.Brushes.White, adjustedRect)
+                ' get print queue and ticket
+                Dim queue As PrintQueue
+                If String.IsNullOrWhiteSpace(printerName) Then
+                    queue = LocalPrintServer.GetDefaultPrintQueue()
+                Else
+                    queue = New LocalPrintServer().GetPrintQueues(
+                        New EnumeratedPrintQueueTypes() {
+                            EnumeratedPrintQueueTypes.Connections,
+                            EnumeratedPrintQueueTypes.Local
+                        }).FirstOrDefault(Function(q) q.FullName = printerName)
+                End If
+                If queue Is Nothing Then
+                    Throw New Exception(String.Format("Printer '{0}' not found.", printerName))
+                End If
+                Dim ticket As PrintTicket = queue.DefaultPrintTicket.Clone()
+                ticket.PageBorderless = PageBorderless.Borderless
+                If isTwoSided.HasValue Then
+                    ticket.Duplexing = If(isTwoSided.Value, Duplexing.TwoSidedLongEdge, Duplexing.OneSided)
+                End If
+                queue.UserPrintTicket = ticket
+                queue.CurrentJobSettings.Description = displayName
 
-        ' Draw the report content
-        e.Graphics.DrawImage(pageBitmap, adjustedRect)
+                ' generate fixed document
+                Dim fixedDocument As FixedDocument = New FixedDocument()
+                For Each image In images
+                    Dim page As FixedPage = New FixedPage() With {
+                        .Width = If(image.Height > image.Width, ticket.PageMediaSize.Width, ticket.PageMediaSize.Height),
+                        .Height = If(image.Height > image.Width, ticket.PageMediaSize.Height, ticket.PageMediaSize.Width),
+                        .Margin = New Thickness(0)
+                    }
+                    page.Children.Add(New Image() With {
+                        .Source = image,
+                        .Width = If(image.Height > image.Width, ticket.PageMediaSize.Width, ticket.PageMediaSize.Height),
+                        .Height = If(image.Height > image.Width, ticket.PageMediaSize.Height, ticket.PageMediaSize.Width),
+                        .Margin = New Thickness(0)
+                    })
+                    Dim content As PageContent = New PageContent()
+                    CType(content, IAddChild).AddChild(page)
+                    fixedDocument.Pages.Add(content)
+                Next
 
-        ' Dispose of resources
-        pageBitmap.Dispose()
-        _streamsPage(_currentPageIndex).Dispose()
+                Dim writer As XpsDocumentWriter = PrintQueue.CreateXpsDocumentWriter(queue)
+                AddHandler writer.WritingPrintTicketRequired,
+                    Sub(s As Object, e As WritingPrintTicketRequiredEventArgs)
+                        e.CurrentPrintTicket = ticket
 
-        ' Prepare for the next page. Make sure we haven't hit the end.
-        _currentPageIndex += 1
-        e.HasMorePages = (_currentPageIndex < _streamsPage.Count)
-        If e.HasMorePages Then
-            e.PageSettings.Landscape = _isLandscape(_currentPageIndex)
-        End If
+                        If e.CurrentPrintTicketLevel = Xps.Serialization.PrintTicketLevel.FixedPagePrintTicket Then
+                            e.CurrentPrintTicket.PageOrientation =
+                                If(images(e.Sequence - 1).Height > images(e.Sequence - 1).Width,
+                                   PageOrientation.Portrait,
+                                   PageOrientation.Landscape)
+
+                            RaiseEvent PrintProgress(Me, New PrintProgressEventArgs() With {
+                                .TotalPages = images.Count,
+                                .CurrentPage = e.Sequence
+                            })
+                        End If
+                    End Sub
+
+                writer.Write(fixedDocument, ticket)
+
+                RaiseEvent PrintCompleted(Me, New EventArgs())
+            End Sub))
+
+        t.SetApartmentState(ApartmentState.STA)
+        t.Start()
     End Sub
 
-    Private Sub printPDF(displayName As String, printerName As String, isTwoSided As Boolean)
-        If _streamsPage Is Nothing OrElse _streamsPage.Count = 0 Then
-            Throw New Exception("No stream to print.")
-        End If
+    Public Class PrintProgressEventArgs
+        Inherits EventArgs
 
-        Dim printDoc As New PrintDocument()
-        printDoc.DocumentName = displayName
-        printDoc.PrintController = New StandardPrintController()
-        printDoc.DefaultPageSettings.Landscape = If(_isLandscape.Count > 0, _isLandscape(0), False)
-        printDoc.DefaultPageSettings.PrinterSettings.Duplex = If(isTwoSided, Duplex.Vertical, Duplex.Simplex)
-        printDoc.PrinterSettings.Duplex = If(isTwoSided, Duplex.Vertical, Duplex.Simplex)
-        If Not printerName Is Nothing Then
-            If isPrinterInstalled(printerName) Then
-                printDoc.PrinterSettings.PrinterName = printerName
-            End If
-        End If
-        If Not printDoc.PrinterSettings.IsValid Then
-            Throw New Exception("Cannot find the default printer.")
-        Else
-            AddHandler printDoc.PrintPage, AddressOf printPage
-            _currentPageIndex = 0
-            printDoc.Print()
-        End If
-    End Sub
-
-    Private Function isPrinterInstalled(printerName As String) As Boolean
-        For Each p In PrinterSettings.InstalledPrinters
-            If p = printerName Then
-                Return True
-            End If
-        Next
-        Return False
-    End Function
+        Public Property TotalPages As Integer
+        Public Property CurrentPage As Integer
+    End Class
 End Class
