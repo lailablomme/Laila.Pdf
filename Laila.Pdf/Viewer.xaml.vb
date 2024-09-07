@@ -821,7 +821,7 @@ Public Class Viewer
         Return ex.Message
     End Function
 
-    Public Overloads Async Sub OnDocumentChanged()
+    Public Overloads Sub OnDocumentChanged()
         Dim bytes As Byte() = GetValue(DocumentProperty)
 
         Dim t As Thread = New Thread(New ThreadStart(
