@@ -490,6 +490,7 @@ Public Class Viewer
                             _selection.StartTextIndex = charIndex '_doc.Pages(pageIndex).TextPage.GetTextIndexFromCharIndex(charIndex)
                             _selection.EndPageIndex = _selection.StartPageIndex
                             _selection.EndTextIndex = _selection.StartTextIndex
+                            Debug.WriteLine("starting selection @ " & charIndex & ", " & pageIndex)
                             Mouse.Capture(Me)
                             _isCaptured = True
                         Else
@@ -718,6 +719,7 @@ Public Class Viewer
             If charIndex <> -1 Then
                 _selection.EndPageIndex = pageIndex
                 _selection.EndTextIndex = charIndex '_doc.Pages(pageIndex).TextPage.GetTextIndexFromCharIndex(charIndex)
+                Debug.WriteLine("selection to @ " & charIndex & ", " & pageIndex)
             End If
             If Not _selection.EndTextIndex = _selection.StartTextIndex AndAlso _selection.EndPageIndex = _selection.StartPageIndex Then
                 _selection.EndTextIndex += 1
@@ -783,8 +785,8 @@ Public Class Viewer
     Public Overloads Async Sub OnDocumentChanged()
         Dim bytes As Byte() = GetValue(DocumentProperty)
 
-        Await Task.Run(
-            Async Function() As Task
+        Dim t As Thread = New Thread(New ThreadStart(
+            Sub()
                 Dim isFirst As Boolean = _p Is Nothing
 
                 Dim appl As Application = Application.Current
@@ -799,10 +801,7 @@ Public Class Viewer
 
                 SyncLock _docLock
                     If Not _doc Is Nothing Then
-                        Application.Current.Dispatcher.Invoke(
-                            Sub()
-                                CType(_doc, IDisposable).Dispose()
-                            End Sub)
+                        CType(_doc, IDisposable).Dispose()
                     End If
 
                     _p = New List(Of PageData)()
@@ -811,13 +810,7 @@ Public Class Viewer
                     _fullText = Nothing
 
                     Try
-                        Application.Current.Dispatcher.Invoke(
-                            Sub()
-                                _doc = New PdfDocument(bytes, 0, bytes.Length)
-
-                                For Each page In _doc.Pages
-                                Next
-                            End Sub)
+                        _doc = New PdfDocument(bytes, 0, bytes.Length)
 
                         ' get full text of PDF
                         Dim pageIndex As Integer = 0
@@ -855,64 +848,63 @@ Public Class Viewer
                             End Sub)
                         Return
                     End Try
-                End SyncLock
 
-                AddHandler _doc.FormFillEnvironment.Invalidate,
-                    Sub(page As PdfPage, left As Double, top As Double, right As Double, bottom As Double)
-                        Dim i As Integer = _doc.Pages.ToList().IndexOf(page)
-                        _p(i).WritableBitmapForm = Nothing
-                        Dim appl2 As Application = Application.Current
-                        If Not appl2 Is Nothing Then
-                            appl2.Dispatcher.BeginInvoke(
+                    AddHandler _doc.FormFillEnvironment.Invalidate,
+                        Sub(page As PdfPage, left As Double, top As Double, right As Double, bottom As Double)
+                            Dim i As Integer = _doc.Pages.ToList().IndexOf(page)
+                            _p(i).WritableBitmapForm = Nothing
+                            Dim appl2 As Application = Application.Current
+                            If Not appl2 Is Nothing Then
+                                appl2.Dispatcher.BeginInvoke(
                                 Sub()
                                     Debug.WriteLine("invalidate ln 846")
                                     Me.InvalidateVisual()
                                 End Sub)
-                        End If
-                    End Sub
+                            End If
+                        End Sub
 
-                AddHandler _doc.FormFillEnvironment.OutputSelectedRect,
-                    Sub(page As PdfPage, left As Double, top As Double, right As Double, bottom As Double)
-                        Dim i As Integer = _doc.Pages.ToList().IndexOf(page)
-                        Debug.WriteLine("outputSelectedRect")
-                        _selectedRects.Add((pageIndex:=i, rect:=New FS_RECTF(left, top, right, bottom)))
-                    End Sub
+                    AddHandler _doc.FormFillEnvironment.OutputSelectedRect,
+                        Sub(page As PdfPage, left As Double, top As Double, right As Double, bottom As Double)
+                            Dim i As Integer = _doc.Pages.ToList().IndexOf(page)
+                            Debug.WriteLine("outputSelectedRect")
+                            _selectedRects.Add((pageIndex:=i, rect:=New FS_RECTF(left, top, right, bottom)))
+                        End Sub
 
-                AddHandler _doc.FormFillEnvironment.SetCursor,
-                    Sub(cursor As PDFiumSharp.CursorType)
-                        Debug.WriteLine("SetCursor " & cursor.ToString())
-                        Select Case cursor
-                            Case PDFiumSharp.CursorType.Arrow : Me.Cursor = Cursors.Arrow
-                            Case PDFiumSharp.CursorType.Hand : Me.Cursor = Cursors.Hand
-                            Case PDFiumSharp.CursorType.HBeam : Me.Cursor = Cursors.IBeam
-                            Case PDFiumSharp.CursorType.NESW : Me.Cursor = Cursors.SizeNESW
-                            Case PDFiumSharp.CursorType.NWSE : Me.Cursor = Cursors.SizeNWSE
-                            Case PDFiumSharp.CursorType.VBeam : Me.Cursor = Cursors.IBeam
-                            Case Else : Me.Cursor = Nothing
-                        End Select
-                    End Sub
+                    AddHandler _doc.FormFillEnvironment.SetCursor,
+                        Sub(cursor As PDFiumSharp.CursorType)
+                            Debug.WriteLine("SetCursor " & cursor.ToString())
+                            Select Case cursor
+                                Case PDFiumSharp.CursorType.Arrow : Me.Cursor = Cursors.Arrow
+                                Case PDFiumSharp.CursorType.Hand : Me.Cursor = Cursors.Hand
+                                Case PDFiumSharp.CursorType.HBeam : Me.Cursor = Cursors.IBeam
+                                Case PDFiumSharp.CursorType.NESW : Me.Cursor = Cursors.SizeNESW
+                                Case PDFiumSharp.CursorType.NWSE : Me.Cursor = Cursors.SizeNWSE
+                                Case PDFiumSharp.CursorType.VBeam : Me.Cursor = Cursors.IBeam
+                                Case Else : Me.Cursor = Nothing
+                            End Select
+                        End Sub
 
-                AddHandler _doc.FormFillEnvironment.GetCurrentPageIndex,
-                    Function() As Integer
-                        Return getCenteredPageIndex()
-                    End Function
+                    AddHandler _doc.FormFillEnvironment.GetCurrentPageIndex,
+                        Function() As Integer
+                            Return getCenteredPageIndex()
+                        End Function
 
-                AddHandler _doc.FormFillEnvironment.Beep,
-                    Sub(type As BeepType)
-                        Select Case type
-                            Case BeepType.Error : System.Media.SystemSounds.Asterisk.Play()
-                            Case BeepType.Question : System.Media.SystemSounds.Question.Play()
-                            Case BeepType.Warning : System.Media.SystemSounds.Exclamation.Play()
-                            Case Else : System.Media.SystemSounds.Beep.Play()
-                        End Select
-                    End Sub
+                    AddHandler _doc.FormFillEnvironment.Beep,
+                        Sub(type As BeepType)
+                            Select Case type
+                                Case BeepType.Error : System.Media.SystemSounds.Asterisk.Play()
+                                Case BeepType.Question : System.Media.SystemSounds.Question.Play()
+                                Case BeepType.Warning : System.Media.SystemSounds.Exclamation.Play()
+                                Case Else : System.Media.SystemSounds.Beep.Play()
+                            End Select
+                        End Sub
 
-                AddHandler _doc.FormFillEnvironment.AppAlert,
-                    Function(msg As String, title As String, buttonType As ButtonType, iconType As IconType) As DialogResult
-                        Dim appl2 As Application = Application.Current
-                        Dim result As DialogResult = DialogResult.Cancel
-                        If Not appl2 Is Nothing Then
-                            appl2.Dispatcher.Invoke(
+                    AddHandler _doc.FormFillEnvironment.AppAlert,
+                        Function(msg As String, title As String, buttonType As ButtonType, iconType As IconType) As DialogResult
+                            Dim appl2 As Application = Application.Current
+                            Dim result As DialogResult = DialogResult.Cancel
+                            If Not appl2 Is Nothing Then
+                                appl2.Dispatcher.Invoke(
                                 Sub()
                                     Dim button As MessageBoxButton
                                     Select Case buttonType
@@ -937,11 +929,12 @@ Public Class Viewer
                                         Case MessageBoxResult.Yes : result = DialogResult.Yes
                                     End Select
                                 End Sub)
-                        End If
-                        Return result
-                    End Function
+                            End If
+                            Return result
+                        End Function
+                End SyncLock
 
-                Await appl.Dispatcher.BeginInvoke(
+                appl.Dispatcher.Invoke(
                     Sub()
                         For Each page In _doc.Pages
                             _p.Add(New PageData() With {
@@ -975,7 +968,9 @@ Public Class Viewer
                         Me.InvalidateVisual()
                         Me.IsLoading = False
                     End Sub)
-            End Function)
+            End Sub))
+        t.SetApartmentState(ApartmentState.STA)
+        t.Start()
     End Sub
 
     Public Function Save() As Byte()

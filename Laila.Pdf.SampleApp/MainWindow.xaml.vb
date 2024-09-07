@@ -26,7 +26,7 @@ Class MainWindow
     End Sub
 
     Private Sub refreshPDFButton_Click(sender As Object, e As RoutedEventArgs) Handles refreshPDFButton.Click
-        viewer.Document = File.ReadAllBytes("c:\users\lblm\documents\Free_Test_Data_1MB_PDF.pdf")
+        viewer.Document = File.ReadAllBytes(_fileName)
     End Sub
 
     Private Sub savePDFButton_Click(sender As Object, e As RoutedEventArgs) Handles savePDFButton.Click
@@ -60,7 +60,7 @@ Class MainWindow
                     Sub()
                     End Sub, Windows.Threading.DispatcherPriority.ContextIdle)
             End Sub
-        printer.Print("pdf", viewer.Save())
+        printer.Print("pdf", viewer.Save(), "\\rvprt01\PR-KWA")
         Me.Cursor = Nothing
     End Sub
 
