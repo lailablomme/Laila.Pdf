@@ -36,7 +36,7 @@ Public Class Viewer
     Private _lastDocument As Byte() = Nothing
     Private _docLock As Object = New Object()
     Private _searchCancellationTokenSource As CancellationTokenSource = Nothing
-    Private _blocks As Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer))) = Nothing
+    Private _blocks As Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer, Integer))) = Nothing
 
     Public Sub New()
         ' This call is required by the designer.
@@ -749,11 +749,18 @@ Public Class Viewer
             Dim charIndex As Integer = _doc.Pages(pageIndex).TextPage.GetCharIndexAtPos(p3.X, p3.Y, 10, 10)
             If charIndex <> -1 Then
                 _selection.EndPageIndex = pageIndex
-                _selection.EndTextIndex = charIndex '_doc.Pages(pageIndex).TextPage.GetTextIndexFromCharIndex(charIndex)
+                _selection.EndTextIndex = charIndex
                 If Not _selection.EndTextIndex = _selection.StartTextIndex AndAlso _selection.EndPageIndex = _selection.StartPageIndex Then
                     _selection.EndTextIndex += 1
                 End If
                 Debug.WriteLine("selection to @ " & charIndex & ", " & pageIndex)
+            Else
+                ' no character found, find last block above current mouse pos
+                Dim lastBlock As Tuple(Of Integer, Integer, Integer, Integer) = _blocks(pageIndex).LastOrDefault(Function(b) b.Item4 < p4.Y)
+                If Not lastBlock Is Nothing Then
+                    _selection.EndPageIndex = pageIndex
+                    _selection.EndTextIndex = lastBlock.Item2 + lastBlock.Item3
+                End If
             End If
 
             If Not prevEndSelectionPage = _selection.EndPageIndex OrElse Not prevEndSelectionTextPos = _selection.EndTextIndex Then
@@ -839,7 +846,7 @@ Public Class Viewer
                     _matches = Nothing
                     _selection = New TextRange()
                     _fullText = Nothing
-                    _blocks = New Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer)))
+                    _blocks = New Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer, Integer)))
 
                     Try
                         _doc = New PdfDocument(bytes, 0, bytes.Length)
@@ -865,36 +872,38 @@ Public Class Viewer
 
                             ' store indexes
                             Dim charIndex As Integer = 0
-                            Dim pageBlocks As List(Of Tuple(Of Integer, Integer, Integer)) = New List(Of Tuple(Of Integer, Integer, Integer))
+                            Dim pageBlocks As List(Of Tuple(Of Integer, Integer, Integer, Integer)) = New List(Of Tuple(Of Integer, Integer, Integer, Integer))
                             Dim isLastSeparator As Boolean = True
                             For Each c In text.ToCharArray()
-                                If Not separators.Contains(c) Then
-                                    If isLastSeparator Then
-                                        Dim numRects As Integer = page.TextPage.CountRects(charIndex, 1)
-                                        If numRects > 0 Then
-                                            ' ...get coordinates
-                                            Dim r2 As FS_RECTF = page.TextPage.GetRect(0)
+                                If Not blockSeparators.Contains(c) AndAlso isLastSeparator Then
+                                    Dim numRects As Integer = page.TextPage.CountRects(charIndex, 1)
+                                    If numRects > 0 Then
+                                        ' ...get coordinates
+                                        Dim r2 As FS_RECTF = page.TextPage.GetRect(0)
 
-                                            ' translate coordinates to device
-                                            Dim p4 = page.PageToDevice((0, 0, page.Width, page.Height), r2.Left, r2.Top + 3)
+                                        ' translate coordinates to device
+                                        Dim p4 = page.PageToDevice((0, 0, page.Width, page.Height), r2.Left, r2.Top)
+                                        Dim p5 = page.PageToDevice((0, 0, page.Width, page.Height), r2.Right, r2.Bottom)
 
-                                            ' get block length
-                                            Dim nextSeparatorIndex As Integer = Integer.MaxValue
-                                            For Each cs In blockSeparators
-                                                Dim checkIndex As Integer = text.IndexOf(cs, charIndex + 1)
-                                                If checkIndex >= 0 AndAlso checkIndex < nextSeparatorIndex Then
-                                                    nextSeparatorIndex = checkIndex
-                                                End If
-                                            Next
-                                            If nextSeparatorIndex = Integer.MaxValue Then
-                                                nextSeparatorIndex = text.Length
+                                        ' get block length
+                                        Dim nextSeparatorIndex As Integer = Integer.MaxValue
+                                        For Each cs In blockSeparators
+                                            Dim checkIndex As Integer = text.IndexOf(cs, charIndex + 1)
+                                            If checkIndex >= 0 AndAlso checkIndex < nextSeparatorIndex Then
+                                                nextSeparatorIndex = checkIndex
                                             End If
-
-                                            ' store block position, index and length
-                                            pageBlocks.Add(New Tuple(Of Integer, Integer, Integer)(p4.Y, charIndex, nextSeparatorIndex - charIndex))
+                                        Next
+                                        If nextSeparatorIndex = Integer.MaxValue Then
+                                            nextSeparatorIndex = text.Length
                                         End If
-                                    End If
 
+                                        ' store block position, index and length
+                                        pageBlocks.Add(New Tuple(Of Integer, Integer, Integer, Integer) _
+                                            (p4.Y, charIndex, nextSeparatorIndex - charIndex, p5.Y))
+                                    End If
+                                End If
+
+                                If Not separators.Contains(c) Then
                                     _charPos.Add(totalCharIndex, New Tuple(Of Integer, Integer)(charIndex, pageIndex))
                                     totalCharIndex += 1
                                     isLastSeparator = False
@@ -1367,11 +1376,10 @@ Public Class Viewer
             endSelectionTextPos = _selection.StartTextIndex
         ElseIf startSelectionPage = endSelectionPage AndAlso startSelectionPage <> -1 Then
             ' were selecting only on one page
-            Dim sortedBlocks As List(Of Tuple(Of Integer, Integer, Integer)) = _blocks(startSelectionPage).OrderBy(Function(b) b.Item1).ToList()
-            Dim sameBlock As Tuple(Of Integer, Integer, Integer) =
-                            sortedBlocks.FirstOrDefault(
-                                Function(b) startSelectionTextPos >= b.Item2 And startSelectionTextPos <= b.Item2 + b.Item3 _
-                                    AndAlso endSelectionTextPos >= b.Item2 And endSelectionTextPos <= b.Item2 + b.Item3)
+            Dim sameBlock As Tuple(Of Integer, Integer, Integer, Integer) =
+                _blocks(startSelectionPage).FirstOrDefault(
+                    Function(b) startSelectionTextPos >= b.Item2 And startSelectionTextPos <= b.Item2 + b.Item3 _
+                        AndAlso endSelectionTextPos >= b.Item2 And endSelectionTextPos <= b.Item2 + b.Item3)
             ' if we're selecting within one block...
             If Not sameBlock Is Nothing Then
                 ' ...and start is greater than end selection ...
@@ -1382,14 +1390,14 @@ Public Class Viewer
                 End If
             Else
                 ' we're selecting accross different blocks
-                Dim startBlock As Tuple(Of Integer, Integer, Integer) =
-                                sortedBlocks.FirstOrDefault(
-                                    Function(b) startSelectionTextPos >= b.Item2 And startSelectionTextPos <= b.Item2 + b.Item3)
-                Dim endBlock As Tuple(Of Integer, Integer, Integer) =
-                                sortedBlocks.FirstOrDefault(
-                                    Function(b) endSelectionTextPos >= b.Item2 And endSelectionTextPos <= b.Item2 + b.Item3)
+                Dim startBlock As Tuple(Of Integer, Integer, Integer, Integer) =
+                    _blocks(startSelectionPage).FirstOrDefault(
+                        Function(b) startSelectionTextPos >= b.Item2 And startSelectionTextPos <= b.Item2 + b.Item3)
+                Dim endBlock As Tuple(Of Integer, Integer, Integer, Integer) =
+                    _blocks(startSelectionPage).FirstOrDefault(
+                        Function(b) endSelectionTextPos >= b.Item2 And endSelectionTextPos <= b.Item2 + b.Item3)
                 ' if the start selection block is greater than the end selection block...
-                If sortedBlocks.IndexOf(startBlock) > sortedBlocks.IndexOf(endBlock) Then
+                If _blocks(startSelectionPage).IndexOf(startBlock) > _blocks(startSelectionPage).IndexOf(endBlock) Then
                     ' ...turn around selection
                     startSelectionTextPos = _selection.EndTextIndex
                     endSelectionTextPos = _selection.StartTextIndex
