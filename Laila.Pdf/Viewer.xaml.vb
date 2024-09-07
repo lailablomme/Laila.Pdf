@@ -36,6 +36,7 @@ Public Class Viewer
     Private _lastDocument As Byte() = Nothing
     Private _docLock As Object = New Object()
     Private _searchCancellationTokenSource As CancellationTokenSource = Nothing
+    Private _blocks As Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer))) = Nothing
 
     Public Sub New()
         ' This call is required by the designer.
@@ -313,32 +314,62 @@ Public Class Viewer
 
     Public ReadOnly Property SelectedText As String
         Get
-            Dim startSelectionPage As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.EndPageIndex, _selection.StartPageIndex)
-            Dim startSelectionTextPos As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.EndTextIndex, _selection.StartTextIndex)
-            Dim endSelectionPage As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.StartPageIndex, _selection.EndPageIndex)
-            Dim endSelectionTextPos As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.StartTextIndex, _selection.EndTextIndex)
-            If _selection.StartPageIndex = _selection.EndPageIndex Then
-                If _selection.StartTextIndex > _selection.EndTextIndex Then
-                    startSelectionTextPos = _selection.EndTextIndex
-                    endSelectionTextPos = _selection.StartTextIndex
-                End If
-            End If
-
+            Dim normalizedSelection As TextRange = getNormalizedSelection()
             Dim text As String = ""
+            Dim doSelectNextBlocks As Boolean = False
+
             For i = 0 To _p.Count - 1
-                If i >= startSelectionPage AndAlso i <= endSelectionPage AndAlso
-                            Not (startSelectionPage = endSelectionPage AndAlso startSelectionTextPos = endSelectionTextPos) Then
-                    If i = startSelectionPage AndAlso i = endSelectionPage Then
-                        text &= _doc.Pages(i).TextPage.GetText(startSelectionTextPos, endSelectionTextPos - startSelectionTextPos)
-                    ElseIf i = startSelectionPage Then
-                        text &= _doc.Pages(i).TextPage.GetText(startSelectionTextPos, _doc.Pages(i).TextPage.CountChars - startSelectionTextPos)
-                    ElseIf i = endSelectionPage Then
-                        text &= _doc.Pages(i).TextPage.GetText(0, endSelectionTextPos)
-                    Else
-                        text &= _doc.Pages(i).TextPage.GetText(0, _doc.Pages(i).TextPage.CountChars)
-                    End If
+                If i >= normalizedSelection.StartPageIndex AndAlso i <= normalizedSelection.EndPageIndex AndAlso
+                            Not (normalizedSelection.StartPageIndex = normalizedSelection.EndPageIndex _
+                                AndAlso normalizedSelection.StartTextIndex = normalizedSelection.EndTextIndex) Then
+                    For Each block In _blocks(i)
+                        If i = normalizedSelection.StartPageIndex AndAlso i = normalizedSelection.EndPageIndex Then
+                            ' start selection page is end selection page
+                            If normalizedSelection.StartTextIndex >= block.Item2 And normalizedSelection.StartTextIndex <= block.Item2 + block.Item3 _
+                                AndAlso normalizedSelection.EndTextIndex >= block.Item2 And normalizedSelection.EndTextIndex <= block.Item2 + block.Item3 Then
+                                ' start and end selection is in this block
+                                text &= _doc.Pages(i).TextPage.GetText(normalizedSelection.StartTextIndex, normalizedSelection.EndTextIndex - normalizedSelection.StartTextIndex) & vbCrLf
+                            ElseIf normalizedSelection.StartTextIndex >= block.Item2 And normalizedSelection.StartTextIndex <= block.Item2 + block.Item3 Then
+                                ' start selection is in this block
+                                text &= _doc.Pages(i).TextPage.GetText(normalizedSelection.StartTextIndex, block.Item2 + block.Item3 - normalizedSelection.StartTextIndex) & vbCrLf
+                            ElseIf normalizedSelection.EndTextIndex >= block.Item2 And normalizedSelection.EndTextIndex <= block.Item2 + block.Item3 Then
+                                ' end selection is in this block
+                                text &= _doc.Pages(i).TextPage.GetText(block.Item2, normalizedSelection.EndTextIndex - block.Item2) & vbCrLf
+                            Else
+                                Dim blockIndex As Integer = _blocks(i).IndexOf(block)
+                                If _blocks(i).Take(blockIndex).ToList().Exists(Function(b) normalizedSelection.StartTextIndex >= b.Item2 And normalizedSelection.StartTextIndex <= b.Item2 + b.Item3) _
+                                    AndAlso _blocks(i).TakeLast(_blocks(i).Count - blockIndex - 1).ToList().Exists(Function(b) normalizedSelection.EndTextIndex >= b.Item2 And normalizedSelection.EndTextIndex <= b.Item2 + b.Item3) Then
+                                    ' start is before this block and end is after this block
+                                    text &= _doc.Pages(i).TextPage.GetText(block.Item2, block.Item3) & vbCrLf
+                                End If
+                            End If
+                        ElseIf i = normalizedSelection.StartPageIndex Then
+                            ' start selection is on this page
+                            If doSelectNextBlocks Then
+                                ' if we're past the start selection, select full block
+                                text &= _doc.Pages(i).TextPage.GetText(block.Item2, block.Item3) & vbCrLf
+                            ElseIf normalizedSelection.StartTextIndex >= block.Item2 And normalizedSelection.StartTextIndex <= block.Item2 + block.Item3 Then
+                                ' selection starts in this block
+                                text &= _doc.Pages(i).TextPage.GetText(normalizedSelection.StartTextIndex, block.Item2 + block.Item3 - normalizedSelection.StartTextIndex) & vbCrLf
+                                doSelectNextBlocks = True
+                            End If
+                        ElseIf i = normalizedSelection.EndPageIndex Then
+                            If normalizedSelection.EndTextIndex >= block.Item2 And normalizedSelection.EndTextIndex <= block.Item2 + block.Item3 Then
+                                ' selection ends in this block
+                                text &= _doc.Pages(i).TextPage.GetText(block.Item2, normalizedSelection.EndTextIndex - block.Item2) & vbCrLf
+                                doSelectNextBlocks = False
+                            ElseIf doSelectNextBlocks Then
+                                ' if we're not past the end of the selection, select full block
+                                text &= _doc.Pages(i).TextPage.GetText(block.Item2, block.Item3) & vbCrLf
+                            End If
+                        Else
+                            ' full page is selected
+                            text &= _doc.Pages(i).TextPage.GetText(block.Item2, block.Item3) & vbCrLf
+                        End If
+                    Next
                 End If
             Next
+
             Return text
         End Get
     End Property
@@ -719,10 +750,10 @@ Public Class Viewer
             If charIndex <> -1 Then
                 _selection.EndPageIndex = pageIndex
                 _selection.EndTextIndex = charIndex '_doc.Pages(pageIndex).TextPage.GetTextIndexFromCharIndex(charIndex)
+                If Not _selection.EndTextIndex = _selection.StartTextIndex AndAlso _selection.EndPageIndex = _selection.StartPageIndex Then
+                    _selection.EndTextIndex += 1
+                End If
                 Debug.WriteLine("selection to @ " & charIndex & ", " & pageIndex)
-            End If
-            If Not _selection.EndTextIndex = _selection.StartTextIndex AndAlso _selection.EndPageIndex = _selection.StartPageIndex Then
-                _selection.EndTextIndex += 1
             End If
 
             If Not prevEndSelectionPage = _selection.EndPageIndex OrElse Not prevEndSelectionTextPos = _selection.EndTextIndex Then
@@ -808,6 +839,7 @@ Public Class Viewer
                     _matches = Nothing
                     _selection = New TextRange()
                     _fullText = Nothing
+                    _blocks = New Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer)))
 
                     Try
                         _doc = New PdfDocument(bytes, 0, bytes.Length)
@@ -817,6 +849,8 @@ Public Class Viewer
                         Dim totalCharIndex As Integer = 0
                         _fullText = ""
                         _charPos = New Dictionary(Of Integer, Tuple(Of Integer, Integer))()
+                        Dim separators As List(Of Char) = New List(Of Char) From {Chr(32), Chr(13), Chr(10), Chr(9)}
+                        Dim blockSeparators As List(Of Char) = New List(Of Char) From {Chr(13), Chr(10)}
                         For Each page In _doc.Pages
                             ' get text for page
                             Dim text As String = ""
@@ -825,17 +859,52 @@ Public Class Viewer
                             End If
 
                             ' filter text  
-                            _fullText &= text.Replace(Chr(32), "").Replace(Chr(13), "").Replace(Chr(10), "")
+                            For Each c In separators
+                                _fullText &= text.Replace(c, "")
+                            Next
 
                             ' store indexes
                             Dim charIndex As Integer = 0
+                            Dim pageBlocks As List(Of Tuple(Of Integer, Integer, Integer)) = New List(Of Tuple(Of Integer, Integer, Integer))
+                            Dim isLastSeparator As Boolean = True
                             For Each c In text.ToCharArray()
-                                If c <> Chr(32) AndAlso c <> Chr(13) AndAlso c <> Chr(10) Then
+                                If Not separators.Contains(c) Then
+                                    If isLastSeparator Then
+                                        Dim numRects As Integer = page.TextPage.CountRects(charIndex, 1)
+                                        If numRects > 0 Then
+                                            ' ...get coordinates
+                                            Dim r2 As FS_RECTF = page.TextPage.GetRect(0)
+
+                                            ' translate coordinates to device
+                                            Dim p4 = page.PageToDevice((0, 0, page.Width, page.Height), r2.Left, r2.Top + 3)
+
+                                            ' get block length
+                                            Dim nextSeparatorIndex As Integer = Integer.MaxValue
+                                            For Each cs In blockSeparators
+                                                Dim checkIndex As Integer = text.IndexOf(cs, charIndex + 1)
+                                                If checkIndex >= 0 AndAlso checkIndex < nextSeparatorIndex Then
+                                                    nextSeparatorIndex = checkIndex
+                                                End If
+                                            Next
+                                            If nextSeparatorIndex = Integer.MaxValue Then
+                                                nextSeparatorIndex = text.Length
+                                            End If
+
+                                            ' store block position, index and length
+                                            pageBlocks.Add(New Tuple(Of Integer, Integer, Integer)(p4.Y, charIndex, nextSeparatorIndex - charIndex))
+                                        End If
+                                    End If
+
                                     _charPos.Add(totalCharIndex, New Tuple(Of Integer, Integer)(charIndex, pageIndex))
                                     totalCharIndex += 1
+                                    isLastSeparator = False
+                                Else
+                                    isLastSeparator = blockSeparators.Contains(c)
                                 End If
                                 charIndex += 1
                             Next
+
+                            _blocks.Add(pageIndex, pageBlocks.OrderBy(Function(b) b.Item1).ToList())
                             pageIndex += 1
                         Next
                     Catch ex As Exception
@@ -1040,17 +1109,10 @@ Public Class Viewer
 
                     Debug.WriteLine("Drawing pages: index=" & index & ", count=" & count)
 
-                    ' turn around selection if we were selecting backwards
-                    Dim startSelectionPage As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.EndPageIndex, _selection.StartPageIndex)
-                    Dim startSelectionTextPos As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.EndTextIndex, _selection.StartTextIndex)
-                    Dim endSelectionPage As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.StartPageIndex, _selection.EndPageIndex)
-                    Dim endSelectionTextPos As Integer = If(_selection.StartPageIndex > _selection.EndPageIndex, _selection.StartTextIndex, _selection.EndTextIndex)
-                    If _selection.StartPageIndex = _selection.EndPageIndex Then
-                        If _selection.StartTextIndex > _selection.EndTextIndex Then
-                            startSelectionTextPos = _selection.EndTextIndex
-                            endSelectionTextPos = _selection.StartTextIndex
-                        End If
-                    End If
+                    Dim normalizedSelection As TextRange = getNormalizedSelection()
+                    Dim doSelectNextBlocks As Boolean =
+                        normalizedSelection.EndPageIndex > normalizedSelection.StartPageIndex _
+                        AndAlso normalizedSelection.StartPageIndex < index
 
                     ' draw pages
                     For i = index To index + count - 1
@@ -1176,43 +1238,79 @@ Public Class Viewer
                                 End If
 
                                 ' if the selection is at least partially on this page...
-                                If i >= startSelectionPage AndAlso i <= endSelectionPage AndAlso Me.Tool <> Tool.Form Then
-                                    ' get (partial) selection rects
-                                    Dim numRects As Integer
-                                    If i = startSelectionPage AndAlso i = endSelectionPage Then
-                                        numRects = _doc.Pages(i).TextPage.CountRects(startSelectionTextPos, endSelectionTextPos - startSelectionTextPos)
-                                    ElseIf i = startSelectionPage Then
-                                        numRects = _doc.Pages(i).TextPage.CountRects(startSelectionTextPos, -1)
-                                    ElseIf i = endSelectionPage Then
-                                        numRects = _doc.Pages(i).TextPage.CountRects(0, endSelectionTextPos)
-                                    Else
-                                        numRects = _doc.Pages(i).TextPage.CountRects(0, -1)
-                                    End If
-
-                                    ' for each rect...
-                                    For j = 0 To numRects - 1
-                                        ' ...get coordinates
-                                        Dim r2 As FS_RECTF = _doc.Pages(i).TextPage.GetRect(j)
-
-                                        ' translate coordinates to device
-                                        Dim p4 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Left, r2.Top + 3)
-                                        Dim p5 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Right, r2.Bottom - 3)
-
-                                        ' invert selection rectangle
-                                        For x = p4.X To p5.X
-                                            For y = p4.Y To p5.Y
-                                                If x >= 0 AndAlso x < w AndAlso y >= 0 AndAlso y < h Then
-                                                    Try
-                                                        ' invert to blue
-                                                        'rgbValues(4 * x + bmdPage.Stride * y) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y)
-                                                        rgbValues(4 * x + stride * y + 1) = 255 - rgbValuesOriginal(4 * x + stride * y + 1)
-                                                        rgbValues(4 * x + stride * y + 2) = 255 - rgbValuesOriginal(4 * x + stride * y + 2)
-                                                        'rgbValues(4 * x + bmdPage.Stride * y + 3) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 3)  
-                                                    Catch ex As Exception
-                                                        ' no idea why as of yet
-                                                        Debug.WriteLine("unhandled ex: " & ex.Message)
-                                                    End Try
+                                If i >= normalizedSelection.StartPageIndex AndAlso i <= normalizedSelection.EndPageIndex AndAlso Me.Tool <> Tool.Form Then
+                                    For Each block In _blocks(i)
+                                        ' get (partial) selection rects
+                                        Dim numRects As Integer = 0
+                                        If i = normalizedSelection.StartPageIndex AndAlso i = normalizedSelection.EndPageIndex Then
+                                            ' start selection page is end selection page
+                                            If normalizedSelection.StartTextIndex >= block.Item2 And normalizedSelection.StartTextIndex <= block.Item2 + block.Item3 _
+                                                AndAlso normalizedSelection.EndTextIndex >= block.Item2 And normalizedSelection.EndTextIndex <= block.Item2 + block.Item3 Then
+                                                ' start and end selection is in this block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(normalizedSelection.StartTextIndex, normalizedSelection.EndTextIndex - normalizedSelection.StartTextIndex)
+                                            ElseIf normalizedSelection.StartTextIndex >= block.Item2 And normalizedSelection.StartTextIndex <= block.Item2 + block.Item3 Then
+                                                ' start selection is in this block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(normalizedSelection.StartTextIndex, block.Item2 + block.Item3 - normalizedSelection.StartTextIndex)
+                                            ElseIf normalizedSelection.EndTextIndex >= block.Item2 And normalizedSelection.EndTextIndex <= block.Item2 + block.Item3 Then
+                                                ' end selection is in this block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(block.Item2, normalizedSelection.EndTextIndex - block.Item2)
+                                            Else
+                                                Dim blockIndex As Integer = _blocks(i).IndexOf(block)
+                                                If _blocks(i).Take(blockIndex).ToList().Exists(Function(b) normalizedSelection.StartTextIndex >= b.Item2 And normalizedSelection.StartTextIndex <= b.Item2 + b.Item3) _
+                                                    AndAlso _blocks(i).TakeLast(_blocks(i).Count - blockIndex - 1).ToList().Exists(Function(b) normalizedSelection.EndTextIndex >= b.Item2 And normalizedSelection.EndTextIndex <= b.Item2 + b.Item3) Then
+                                                    ' start is before this block and end is after this block
+                                                    numRects = _doc.Pages(i).TextPage.CountRects(block.Item2, block.Item3)
                                                 End If
+                                            End If
+                                        ElseIf i = normalizedSelection.StartPageIndex Then
+                                            ' start selection is on this page
+                                            If doSelectNextBlocks Then
+                                                ' if we're past the start selection, select full block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(block.Item2, block.Item3)
+                                            ElseIf normalizedSelection.StartTextIndex >= block.Item2 And normalizedSelection.StartTextIndex <= block.Item2 + block.Item3 Then
+                                                ' selection starts in this block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(normalizedSelection.StartTextIndex, block.Item2 + block.Item3 - normalizedSelection.StartTextIndex)
+                                                doSelectNextBlocks = True
+                                            End If
+                                        ElseIf i = normalizedSelection.EndPageIndex Then
+                                            If normalizedSelection.EndTextIndex >= block.Item2 And normalizedSelection.EndTextIndex <= block.Item2 + block.Item3 Then
+                                                ' selection ends in this block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(block.Item2, normalizedSelection.EndTextIndex - block.Item2)
+                                                doSelectNextBlocks = False
+                                            ElseIf doSelectNextBlocks Then
+                                                ' if we're not past the end of the selection, select full block
+                                                numRects = _doc.Pages(i).TextPage.CountRects(block.Item2, block.Item3)
+                                            End If
+                                        Else
+                                            ' full page is selected
+                                            numRects = _doc.Pages(i).TextPage.CountRects(block.Item2, block.Item3)
+                                        End If
+
+                                        ' for each rect...
+                                        For j = 0 To numRects - 1
+                                            ' ...get coordinates
+                                            Dim r2 As FS_RECTF = _doc.Pages(i).TextPage.GetRect(j)
+
+                                            ' translate coordinates to device
+                                            Dim p4 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Left, r2.Top + 3)
+                                            Dim p5 = _doc.Pages(i).PageToDevice((0, 0, _p(i).WritableBitmapPage.PixelWidth, _p(i).WritableBitmapPage.PixelHeight), r2.Right, r2.Bottom - 3)
+
+                                            ' invert selection rectangle
+                                            For x = p4.X To p5.X
+                                                For y = p4.Y To p5.Y
+                                                    If x >= 0 AndAlso x < w AndAlso y >= 0 AndAlso y < h Then
+                                                        Try
+                                                            ' invert to blue
+                                                            'rgbValues(4 * x + bmdPage.Stride * y) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y)
+                                                            rgbValues(4 * x + stride * y + 1) = 255 - rgbValuesOriginal(4 * x + stride * y + 1)
+                                                            rgbValues(4 * x + stride * y + 2) = 255 - rgbValuesOriginal(4 * x + stride * y + 2)
+                                                            'rgbValues(4 * x + bmdPage.Stride * y + 3) = 255 - rgbValuesOriginal(4 * x + bmdPage.Stride * y + 3)  
+                                                        Catch ex As Exception
+                                                            ' no idea why as of yet
+                                                            Debug.WriteLine("unhandled ex: " & ex.Message)
+                                                        End Try
+                                                    End If
+                                                Next
                                             Next
                                         Next
                                     Next
@@ -1248,6 +1346,65 @@ Public Class Viewer
             End SyncLock
         End If
     End Sub
+
+    ''' <summary>
+    ''' Turn around selection if we were selecting backwards.
+    ''' </summary>
+    ''' <returns>A TextRange object representing the normalized selection.</returns>
+    Private Function getNormalizedSelection() As TextRange
+        ' first get selection
+        Dim startSelectionPage As Integer = _selection.StartPageIndex
+        Dim startSelectionTextPos As Integer = _selection.StartTextIndex
+        Dim endSelectionPage As Integer = _selection.EndPageIndex
+        Dim endSelectionTextPos As Integer = _selection.EndTextIndex
+
+        ' if we started selecting on a page further than where we stopped selecting...
+        If startSelectionPage > endSelectionPage Then
+            ' ...turn around selection
+            startSelectionPage = _selection.EndPageIndex
+            startSelectionTextPos = _selection.EndTextIndex
+            endSelectionPage = _selection.StartPageIndex
+            endSelectionTextPos = _selection.StartTextIndex
+        ElseIf startSelectionPage = endSelectionPage AndAlso startSelectionPage <> -1 Then
+            ' were selecting only on one page
+            Dim sortedBlocks As List(Of Tuple(Of Integer, Integer, Integer)) = _blocks(startSelectionPage).OrderBy(Function(b) b.Item1).ToList()
+            Dim sameBlock As Tuple(Of Integer, Integer, Integer) =
+                            sortedBlocks.FirstOrDefault(
+                                Function(b) startSelectionTextPos >= b.Item2 And startSelectionTextPos <= b.Item2 + b.Item3 _
+                                    AndAlso endSelectionTextPos >= b.Item2 And endSelectionTextPos <= b.Item2 + b.Item3)
+            ' if we're selecting within one block...
+            If Not sameBlock Is Nothing Then
+                ' ...and start is greater than end selection ...
+                If startSelectionTextPos > endSelectionTextPos Then
+                    ' ...turn around selection
+                    startSelectionTextPos = _selection.EndTextIndex
+                    endSelectionTextPos = _selection.StartTextIndex
+                End If
+            Else
+                ' we're selecting accross different blocks
+                Dim startBlock As Tuple(Of Integer, Integer, Integer) =
+                                sortedBlocks.FirstOrDefault(
+                                    Function(b) startSelectionTextPos >= b.Item2 And startSelectionTextPos <= b.Item2 + b.Item3)
+                Dim endBlock As Tuple(Of Integer, Integer, Integer) =
+                                sortedBlocks.FirstOrDefault(
+                                    Function(b) endSelectionTextPos >= b.Item2 And endSelectionTextPos <= b.Item2 + b.Item3)
+                ' if the start selection block is greater than the end selection block...
+                If sortedBlocks.IndexOf(startBlock) > sortedBlocks.IndexOf(endBlock) Then
+                    ' ...turn around selection
+                    startSelectionTextPos = _selection.EndTextIndex
+                    endSelectionTextPos = _selection.StartTextIndex
+                End If
+            End If
+        End If
+
+        ' return textrange
+        Return New TextRange() With {
+            .StartPageIndex = startSelectionPage,
+            .StartTextIndex = startSelectionTextPos,
+            .EndPageIndex = endSelectionPage,
+            .EndTextIndex = endSelectionTextPos
+        }
+    End Function
 
     Private Sub setCursor()
         Select Case Me.Tool
