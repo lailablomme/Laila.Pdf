@@ -372,9 +372,14 @@ namespace PDFiumSharp
 
 		public static string FPDFText_GetText(FPDF_TEXTPAGE text_page, int start_index, int count)
 		{
-			var buffer = new byte[2 * (count + 1)];
-			int length = FPDFText_GetText(text_page, start_index, count, ref buffer[0]);
-			return Encoding.Unicode.GetString(buffer, 0, (length - 1) * 2);
+			if (count > 0)
+			{
+				var buffer = new byte[2 * (count + 1)];
+				int length = FPDFText_GetText(text_page, start_index, count, ref buffer[0]);
+				return Encoding.Unicode.GetString(buffer, 0, (length - 1) * 2);
+			}
+			else
+				return string.Empty;
 		}
 
 		public static string FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page, double left, double top, double right, double bottom)

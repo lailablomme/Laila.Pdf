@@ -235,7 +235,7 @@ Public Class Viewer
             _selection.StartTextIndex = range.StartTextIndex
             _selection.EndPageIndex = range.EndPageIndex
             _selection.EndTextIndex = range.EndTextIndex
-            Me.IsTextSelected = Not String.IsNullOrWhiteSpace(Me.SelectedText)
+            Me.IsTextSelected = _selection.StartPageIndex <> _selection.EndPageIndex OrElse _selection.StartTextIndex <> _selection.EndTextIndex
 
             ' get first and last rects
             Dim firstRect As FS_RECTF
@@ -390,7 +390,7 @@ Public Class Viewer
                     _selection.StartTextIndex = 0
                     _selection.EndTextIndex = _doc.Pages(_selection.EndPageIndex).TextPage.CountChars
 
-                    Me.IsTextSelected = Not String.IsNullOrWhiteSpace(Me.SelectedText)
+                    Me.IsTextSelected = _selection.StartPageIndex <> _selection.EndPageIndex OrElse _selection.StartTextIndex <> _selection.EndTextIndex
 
                     Debug.WriteLine("invalidate ln 388")
                     Me.InvalidateVisual()
@@ -531,7 +531,7 @@ Public Class Viewer
                             _selection.EndPageIndex = -1
                         End If
 
-                        Me.IsTextSelected = Not String.IsNullOrWhiteSpace(Me.SelectedText)
+                        Me.IsTextSelected = _selection.StartPageIndex <> _selection.EndPageIndex OrElse _selection.StartTextIndex <> _selection.EndTextIndex
                         invalidateRangePages(_selection)
 
                         Debug.WriteLine("invalidate ln 521")
@@ -622,7 +622,7 @@ Public Class Viewer
                             _selection.EndPageIndex = -1
                         End If
 
-                        Me.IsTextSelected = Not String.IsNullOrWhiteSpace(Me.SelectedText)
+                        Me.IsTextSelected = _selection.StartPageIndex <> _selection.EndPageIndex OrElse _selection.StartTextIndex <> _selection.EndTextIndex
                         invalidateRangePages(_selection)
 
                         Debug.WriteLine("invalidate ln 613")
@@ -766,7 +766,7 @@ Public Class Viewer
             End If
 
             If Not prevEndSelectionPage = _selection.EndPageIndex OrElse Not prevEndSelectionTextPos = _selection.EndTextIndex Then
-                Me.IsTextSelected = Not String.IsNullOrWhiteSpace(Me.SelectedText)
+                Me.IsTextSelected = _selection.StartPageIndex <> _selection.EndPageIndex OrElse _selection.StartTextIndex <> _selection.EndTextIndex
 
                 invalidateRangePages(New TextRange() With {
                     .StartPageIndex = _selection.StartPageIndex,
@@ -825,25 +825,33 @@ Public Class Viewer
     Public Overloads Sub OnDocumentChanged()
         Dim bytes As Byte() = GetValue(DocumentProperty)
 
+        Me.IsLoading = True
+        errorGrid.Visibility = Visibility.Collapsed
+
+        SyncLock _docLock
+            ' dispose previous doc
+            If Not _doc Is Nothing Then
+                CType(_doc, IDisposable).Dispose()
+            End If
+
+            ' open doc on dispatcher thread because this is the thread IDisposeable.Dispose works on
+            _doc = New PdfDocument(bytes, 0, bytes.Length)
+            For Each page In _doc.Pages
+                Dim f As PdfForm = page.Form
+                Dim tp As PdfTextPage = page.TextPage
+            Next
+        End SyncLock
+
         Dim t As Thread = New Thread(New ThreadStart(
             Sub()
-                Dim isFirst As Boolean = _p Is Nothing
-
                 Dim appl As Application = Application.Current
                 If appl Is Nothing Then
                     Return
                 End If
-                appl.Dispatcher.Invoke(
-                    Sub()
-                        Me.IsLoading = True
-                        errorGrid.Visibility = Visibility.Collapsed
-                    End Sub)
+
+                Dim isFirst As Boolean = _p Is Nothing
 
                 SyncLock _docLock
-                    If Not _doc Is Nothing Then
-                        CType(_doc, IDisposable).Dispose()
-                    End If
-
                     _p = New List(Of PageData)()
                     _matches = Nothing
                     _selection = New TextRange()
@@ -851,8 +859,6 @@ Public Class Viewer
                     _blocks = New Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer, Integer)))
 
                     Try
-                        _doc = New PdfDocument(bytes, 0, bytes.Length)
-
                         ' get full text of PDF
                         Dim pageIndex As Integer = 0
                         Dim charIndexOffset As Integer = 0
