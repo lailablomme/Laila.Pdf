@@ -1,6 +1,4 @@
 ﻿Imports System.ComponentModel
-Imports System.Diagnostics.Metrics
-Imports System.Drawing
 Imports System.IO
 Imports System.Runtime.CompilerServices
 Imports System.Text
@@ -38,6 +36,7 @@ Public Class Viewer
     Private _docLock As Object = New Object()
     Private _searchCancellationTokenSource As CancellationTokenSource = Nothing
     Private _blocks As Dictionary(Of Integer, List(Of Tuple(Of Integer, Integer, Integer, Integer))) = Nothing
+    Private _mouseDownPoint As Point = New Point()
 
     Public Sub New()
         ' This call is required by the designer.
@@ -158,8 +157,8 @@ Public Class Viewer
     End Sub
 
     Private Sub search(searchTerm As String, cancellationToken As CancellationToken)
-        Task.Run(
-            Async Function() As Task
+        Dim t As Thread = New Thread(New ThreadStart(
+            Sub()
                 If _doc Is Nothing Then
                     Return
                 End If
@@ -220,7 +219,8 @@ Public Class Viewer
 
                         Me.IsLoading = False
                     End Sub)
-            End Function)
+            End Sub))
+        t.Start()
     End Sub
 
     Public Overloads Sub OnCurrentMatchIndexChanged()
@@ -253,7 +253,7 @@ Public Class Viewer
             End If
 
             Dim lastp2 = _doc.Pages(range.EndPageIndex).PageToDevice((0, 0, _p(range.EndPageIndex).OriginalWidth, _p(range.EndPageIndex).OriginalHeight), lastRect.Right, lastRect.Bottom)
-            Dim lastP As System.Drawing.Point = getAbsolutePagePosition(range.EndPageIndex)
+            Dim lastP As Point = getAbsolutePagePosition(range.EndPageIndex)
             lastp2.Y = lastp2.Y / _p(range.EndPageIndex).OriginalHeight * _p(range.EndPageIndex).Height + lastP.Y
             lastp2.X = lastp2.X / _p(range.EndPageIndex).OriginalWidth * _p(range.EndPageIndex).Width + lastP.X
 
@@ -272,7 +272,7 @@ Public Class Viewer
             End If
 
             Dim firstp1 = _doc.Pages(range.StartPageIndex).PageToDevice((0, 0, _p(range.StartPageIndex).OriginalWidth, _p(range.StartPageIndex).OriginalHeight), firstRect.Left, firstRect.Top)
-            Dim firstP As System.Drawing.Point = getAbsolutePagePosition(range.StartPageIndex)
+            Dim firstP As Point = getAbsolutePagePosition(range.StartPageIndex)
             firstp1.Y = firstp1.Y / _p(range.StartPageIndex).OriginalHeight * _p(range.StartPageIndex).Height + firstP.Y
             firstp1.X = firstp1.X / _p(range.StartPageIndex).OriginalWidth * _p(range.StartPageIndex).Width + firstP.X
 
@@ -499,7 +499,8 @@ Public Class Viewer
         Me.Focus()
 
         If e.OriginalSource.Equals(grid) Then
-            Dim point As System.Windows.Point = e.GetPosition(Me)
+            Dim point As Point = e.GetPosition(Me)
+            _mouseDownPoint = point
             Dim pageIndex As Integer = getPageByPoint(point)
             If pageIndex <> -1 Then
                 Select Case Me.Tool
@@ -660,7 +661,7 @@ Public Class Viewer
                                             point = _scrollPoint
                                             If _scrollPoint.Y < 0 Then
                                                 scrollBarV.Value -= Math.Abs(_scrollPoint.Y)
-                                                Dim r As Rectangle = getPageRectangle(getFirstVisiblePageIndex())
+                                                Dim r As Rect = getPageRectangle(getFirstVisiblePageIndex())
                                                 If r.Y > 0 Then
                                                     point.Y = r.Y + 1
                                                 Else
@@ -673,7 +674,7 @@ Public Class Viewer
                                                 Dim lastpageIndex As Integer = getFirstVisiblePageIndex() + getNumberOfVisiblePages()
                                                 If lastpageIndex > _p.Count - 1 Then lastpageIndex = _p.Count - 1
                                                 Debug.WriteLine("getFirstVisiblePageIndex()=" & getFirstVisiblePageIndex() & "  getNumberOfVisiblePages()=" & getNumberOfVisiblePages() & " lastpageIndex=" & lastpageIndex)
-                                                Dim r As Rectangle = getPageRectangle(lastpageIndex)
+                                                Dim r As Rect = getPageRectangle(lastpageIndex)
                                                 If r.Y + r.Height < Me.ActualHeight - scrollbarHHeight Then
                                                     point.Y = r.Y + r.Height - 1
                                                 Else
@@ -687,7 +688,7 @@ Public Class Viewer
                                                 Dim pageNo As Integer = getPageByPoint(New System.Windows.Point() With {.Y = _scrollPoint.Y, .X = -1})
                                                 If pageNo < 0 Then pageNo = 0
                                                 If pageNo > _p.Count - 1 Then pageNo = _p.Count - 1
-                                                Dim r As Rectangle = getPageRectangle(pageNo)
+                                                Dim r As Rect = getPageRectangle(pageNo)
                                                 If r.X > 0 Then
                                                     point.X = r.X + 1
                                                 Else
@@ -700,7 +701,7 @@ Public Class Viewer
                                                 Dim pageNo As Integer = getPageByPoint(New System.Windows.Point() With {.Y = _scrollPoint.Y, .X = -1})
                                                 If pageNo < 0 Then pageNo = 0
                                                 If pageNo > _p.Count - 1 Then pageNo = _p.Count - 1
-                                                Dim r As Rectangle = getPageRectangle(pageNo)
+                                                Dim r As Rect = getPageRectangle(pageNo)
                                                 If r.X + r.Width < Me.ActualWidth - scrollbarVWidth Then
                                                     point.X = r.X + r.Width - 1
                                                 Else
@@ -738,7 +739,7 @@ Public Class Viewer
         End Select
     End Sub
 
-    Private Sub mouseMoved(point As System.Windows.Point)
+    Private Sub mouseMoved(point As Point)
         Dim prevEndSelectionPage As Integer = _selection.EndPageIndex
         Dim prevEndSelectionTextPos As Integer = _selection.EndTextIndex
 
@@ -755,7 +756,7 @@ Public Class Viewer
                     _selection.EndTextIndex += 1
                 End If
                 Debug.WriteLine("selection to @ " & charIndex & ", " & pageIndex)
-            Else
+            ElseIf Not (_mouseDownPoint.X = point.X AndAlso _mouseDownPoint.Y = point.Y) Then
                 ' no character found, find last block above current mouse pos
                 Dim lastBlock As Tuple(Of Integer, Integer, Integer, Integer) = _blocks(pageIndex).LastOrDefault(Function(b) b.Item4 < p4.Y)
                 If Not lastBlock Is Nothing Then
@@ -854,6 +855,7 @@ Public Class Viewer
 
                         ' get full text of PDF
                         Dim pageIndex As Integer = 0
+                        Dim charIndexOffset As Integer = 0
                         Dim totalCharIndex As Integer = 0
                         _fullText = ""
                         _charPos = New Dictionary(Of Integer, Tuple(Of Integer, Integer))()
@@ -865,11 +867,6 @@ Public Class Viewer
                             If page.TextPage.CountChars > 0 Then
                                 text = page.TextPage.GetText(0, page.TextPage.CountChars)
                             End If
-
-                            ' filter text  
-                            For Each c In separators
-                                _fullText &= text.Replace(c, "")
-                            Next
 
                             ' store indexes
                             Dim charIndex As Integer = 0
@@ -905,8 +902,6 @@ Public Class Viewer
                                 End If
 
                                 If Not separators.Contains(c) Then
-                                    _charPos.Add(totalCharIndex, New Tuple(Of Integer, Integer)(charIndex, pageIndex))
-                                    totalCharIndex += 1
                                     isLastSeparator = False
                                 Else
                                     isLastSeparator = blockSeparators.Contains(c)
@@ -915,7 +910,29 @@ Public Class Viewer
                             Next
 
                             _blocks.Add(pageIndex, pageBlocks.OrderBy(Function(b) b.Item1).ToList())
+
+                            For Each block In _blocks(pageIndex)
+                                Dim blockText As String = text.Substring(block.Item2, block.Item3)
+
+                                ' filter text  
+                                Dim filteredText As String = blockText
+                                For Each c In separators
+                                    filteredText = filteredText.Replace(c, "")
+                                Next
+                                _fullText &= filteredText
+
+                                charIndex = 0
+                                For Each c In blockText.ToCharArray()
+                                    If Not separators.Contains(c) Then
+                                        _charPos.Add(totalCharIndex, New Tuple(Of Integer, Integer)(block.Item2 + charIndex, pageIndex))
+                                        totalCharIndex += 1
+                                    End If
+                                    charIndex += 1
+                                Next
+                            Next
+
                             pageIndex += 1
+                            charIndexOffset += text.Length
                         Next
                     Catch ex As Exception
                         appl.Dispatcher.BeginInvoke(
@@ -1127,7 +1144,7 @@ Public Class Viewer
                     ' draw pages
                     For i = index To index + count - 1
                         If i < _p.Count Then
-                            Dim r As Rectangle = getPageRectangle(i)
+                            Dim r As Rect = getPageRectangle(i)
 
                             If _p(i).WritableBitmapForm Is Nothing Then
                                 Dim wbForm As WriteableBitmap = New WriteableBitmap(
@@ -1497,7 +1514,7 @@ Public Class Viewer
     End Function
 
     Private Function translatePointToPage(pageIndex As Integer, p As System.Windows.Point) As System.Windows.Point
-        Dim r As Rectangle = getPageRectangle(pageIndex)
+        Dim r As Rect = getPageRectangle(pageIndex)
         Dim p2 As System.Windows.Point = New System.Windows.Point() With {
             .X = (p.X - r.X) / _p(pageIndex).Width * _p(pageIndex).Width,
             .Y = (p.Y - r.Y) / _p(pageIndex).Height * _p(pageIndex).Height
@@ -1521,7 +1538,7 @@ Public Class Viewer
                 ' check if point is in page
                 For i = index To index + count
                     If i < _p.Count Then
-                        Dim r As Rectangle = getPageRectangle(i)
+                        Dim r As Rect = getPageRectangle(i)
                         If (p.X = -1 OrElse (p.X > r.Left And p.X < r.Right)) And p.Y > r.Top And p.Y < r.Bottom Then
                             ' point is in page
                             Return i
@@ -1605,7 +1622,7 @@ Public Class Viewer
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
         Dim count As Integer = 0
         For i = 0 To _p.Count - 1
-            Dim r As Rectangle = getPageRectangle(i)
+            Dim r As Rect = getPageRectangle(i)
             If r.Y >= 0 AndAlso r.Y <= Me.ActualHeight - scrollbarHHeight _
                 OrElse r.Y + r.Height >= 0 AndAlso r.Y + r.Height <= Me.ActualHeight - scrollbarHHeight _
                 OrElse r.Y <= 0 AndAlso r.Y + r.Height >= Me.ActualHeight - scrollbarHHeight Then
@@ -1619,7 +1636,7 @@ Public Class Viewer
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
         Dim count As Integer = 0
         For i = 0 To _p.Count - 1
-            Dim r As Rectangle = getPageRectangle(i)
+            Dim r As Rect = getPageRectangle(i)
             If r.Y >= 0 AndAlso r.Y <= Me.ActualHeight - scrollbarHHeight _
                 OrElse r.Y + r.Height >= 0 AndAlso r.Y + r.Height <= Me.ActualHeight - scrollbarHHeight _
                 OrElse r.Y <= 0 AndAlso r.Y + r.Height >= Me.ActualHeight - scrollbarHHeight Then
@@ -1633,7 +1650,7 @@ Public Class Viewer
         Dim h As Double = scrollBarV.ViewportSize / 2
         Dim count As Integer = 0
         For i = 0 To _p.Count - 1
-            Dim r As Rectangle = getPageRectangle(i)
+            Dim r As Rect = getPageRectangle(i)
             If r.Y - PAGE_PADDING_Y <= h AndAlso r.Y + r.Height >= h Then
                 Return i
             End If
@@ -1644,7 +1661,7 @@ Public Class Viewer
     Private Const PAGE_PADDING_Y As Integer = 10
     Private Const PAGE_PADDING_X As Integer = 10
 
-    Private Function getAbsolutePagePosition(i As Integer) As System.Drawing.Point
+    Private Function getAbsolutePagePosition(i As Integer) As Point
         Dim y As Integer = 0
         For z = 0 To i - 1
             y += (_p(z).Height + PAGE_PADDING_Y)
@@ -1653,10 +1670,10 @@ Public Class Viewer
         Dim maxWidth As Double = If(Not _p Is Nothing, _p.Max(Function(p) p.Width + PAGE_PADDING_X), 0)
         Dim x As Integer = maxWidth / 2 - _p(i).Width / 2
 
-        Return New System.Drawing.Point(x, y)
+        Return New Point(x, y)
     End Function
 
-    Private Function getPageRectangle(i As Integer) As Rectangle
+    Private Function getPageRectangle(i As Integer) As Rect
         Dim scrollbarVWidth As Integer = If(scrollBarV.Width = Double.NaN OrElse scrollBarV.Visibility <> Visibility.Visible, 0, scrollBarV.Width)
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
 
@@ -1675,7 +1692,7 @@ Public Class Viewer
             x = x - scrollBarH.Value '+ (PAGE_PADDING_X / 2)
         End If
 
-        Return New Rectangle(x, posY, _p(i).Width, _p(i).Height)
+        Return New Rect(x, posY, _p(i).Width, _p(i).Height)
     End Function
 
     Public ReadOnly Property ZoomCursor As Cursor
@@ -1729,7 +1746,7 @@ Public Class Viewer
         Dim i As Integer = getCenteredPageIndex()
         Dim z As Double = (scrollBarH.ViewportSize - scrollBarV.Width - 10) / (_p(i).OriginalWidth) * 100
         Me.ZoomTo(z, 0, 0)
-        Dim p As System.Drawing.Point = getAbsolutePagePosition(i)
+        Dim p As Point = getAbsolutePagePosition(i)
         scrollBarH.Value = p.X
     End Sub
 
@@ -1737,7 +1754,7 @@ Public Class Viewer
         Dim i As Integer = getCenteredPageIndex()
         Dim z As Double = (scrollBarV.ViewportSize - scrollBarH.Height - 10) / (_p(i).OriginalHeight) * 100
         Me.ZoomTo(z, 0, 0)
-        Dim p As System.Drawing.Point = getAbsolutePagePosition(i)
+        Dim p As Point = getAbsolutePagePosition(i)
         scrollBarV.Value = p.Y
     End Sub
 
