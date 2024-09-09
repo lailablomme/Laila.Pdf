@@ -1130,6 +1130,7 @@ Public Class Viewer
         Dim scrollbarHHeight As Integer = If(scrollBarH.Height = Double.NaN OrElse scrollBarH.Visibility <> Visibility.Visible, 0, scrollBarH.Height)
         drawingContext.PushClip(New RectangleGeometry(New Rect(0, 0, Me.ActualWidth, Me.ActualHeight)))
         drawingContext.DrawRectangle(Media.Brushes.Gray, New Media.Pen(), New Rect(0, 0, Me.ActualWidth, Me.ActualHeight))
+        Dim dpi As DpiScale = VisualTreeHelper.GetDpi(Me)
 
         If Me.ActualWidth - scrollbarVWidth > 0 AndAlso Me.ActualHeight - scrollbarHHeight > 0 Then
             SyncLock _docLock
@@ -1154,7 +1155,7 @@ Public Class Viewer
 
                             If _p(i).WritableBitmapForm Is Nothing Then
                                 Dim wbForm As WriteableBitmap = New WriteableBitmap(
-                                        r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
+                                        r.Width * dpi.PixelsPerInchX / 96, r.Height * dpi.PixelsPerInchY / 96, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Bgra32, Nothing)
                                 _doc.Pages(i).RenderForm(wbForm)
 
                                 Dim stride As Integer = Math.Abs(wbForm.BackBufferStride)
@@ -1214,7 +1215,7 @@ Public Class Viewer
                             If _p(i).WritableBitmapPageOriginal Is Nothing Then
                                 ' ...get page bitmap
                                 _p(i).WritableBitmapPageOriginal = New WriteableBitmap(
-                                        r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
+                                        r.Width * dpi.PixelsPerInchX / 96, r.Height * dpi.PixelsPerInchY / 96, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Bgra32, Nothing)
 
                                 ' white background
                                 Dim stride As Integer = Math.Abs(_p(i).WritableBitmapPageOriginal.BackBufferStride)
@@ -1249,7 +1250,7 @@ Public Class Viewer
                                     OrElse r.Width <> _p(i).WritableBitmapPage.PixelWidth _
                                     OrElse r.Height <> _p(i).WritableBitmapPage.PixelHeight Then
                                     _p(i).WritableBitmapPage = New WriteableBitmap(
-                                        r.Width, r.Height, 96, 96, PixelFormats.Bgra32, Nothing)
+                                        r.Width * dpi.PixelsPerInchX / 96, r.Height * dpi.PixelsPerInchY / 96, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Bgra32, Nothing)
                                 End If
 
                                 Dim w As Integer = _p(i).WritableBitmapPage.PixelWidth, h As Integer = _p(i).WritableBitmapPage.PixelHeight
