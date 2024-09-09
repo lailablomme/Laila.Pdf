@@ -14,41 +14,45 @@ Public Class Printer
     Public Event PrintProgress(sender As Object, e As PrintProgressEventArgs)
     Public Event PrintCompleted(sender As Object, e As EventArgs)
 
+    Private Shared _lock As Object = New Object()
+
     Public Sub Print(displayName As String, bytes As Byte(), Optional printerName As String = Nothing,
                      Optional isTwoSided As Boolean? = True)
         Dim t As Thread = New Thread(New ThreadStart(
             Sub()
                 Dim images As List(Of ImageSource) = New List(Of ImageSource)()
 
-                ' render document
-                Using pdfDocument = New PdfDocument(bytes, 0, bytes.Length)
-                    RaiseEvent PrintProgress(Me, New PrintProgressEventArgs() With {
-                        .TotalPages = pdfDocument.Pages.Count,
-                        .CurrentPage = 0
-                    })
+                SyncLock _lock
+                    ' render document
+                    Using pdfDocument = New PdfDocument(bytes, 0, bytes.Length)
+                        RaiseEvent PrintProgress(Me, New PrintProgressEventArgs() With {
+                            .TotalPages = pdfDocument.Pages.Count,
+                            .CurrentPage = 0
+                        })
 
-                    For Each page In pdfDocument.Pages
-                        Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 3, page.Height * 3, 96, 96, PixelFormats.Bgr32, Nothing)
+                        For Each page In pdfDocument.Pages
+                            Dim writableBitmap As WriteableBitmap = New WriteableBitmap(page.Width * 3, page.Height * 3, 96, 96, PixelFormats.Bgr32, Nothing)
 
-                        ' white background
-                        Dim stride As Integer = Math.Abs(writableBitmap.BackBufferStride)
-                        Dim byteCount As Integer = stride * writableBitmap.PixelHeight
-                        Dim rgbValues(byteCount - 1) As Byte
-                        For j = 0 To rgbValues.Count - 1
-                            rgbValues(j) = 255
-                        Next
-                        writableBitmap.WritePixels(
+                            ' white background
+                            Dim stride As Integer = Math.Abs(writableBitmap.BackBufferStride)
+                            Dim byteCount As Integer = stride * writableBitmap.PixelHeight
+                            Dim rgbValues(byteCount - 1) As Byte
+                            For j = 0 To rgbValues.Count - 1
+                                rgbValues(j) = 255
+                            Next
+                            writableBitmap.WritePixels(
                             New Int32Rect(0, 0, writableBitmap.PixelWidth, writableBitmap.PixelHeight),
                             rgbValues, stride, 0)
 
-                        ' render page
-                        page.RenderPage(writableBitmap)
-                        page.RenderForm(writableBitmap)
+                            ' render page
+                            page.RenderPage(writableBitmap)
+                            page.RenderForm(writableBitmap)
 
-                        ' add to list
-                        images.Add(writableBitmap)
-                    Next
-                End Using
+                            ' add to list
+                            images.Add(writableBitmap)
+                        Next
+                    End Using
+                End SyncLock
 
                 ' get print queue and ticket
                 Dim queue As PrintQueue
