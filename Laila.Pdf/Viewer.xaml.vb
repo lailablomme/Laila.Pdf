@@ -213,7 +213,11 @@ Public Class Viewer
                         If cancellationToken.IsCancellationRequested Then Return
 
                         ' count matches
-                        Me.NumberOfMatches = _matches.Count
+                        If Not _matches Is Nothing Then
+                            Me.NumberOfMatches = _matches.Count
+                        Else
+                            Me.NumberOfMatches = 0
+                        End If
                         Me.CurrentMatchIndex = 0
                         Me.OnCurrentMatchIndexChanged()
 
