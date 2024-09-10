@@ -156,27 +156,23 @@ Public Class Viewer
         search(Me.SearchTerm, _searchCancellationTokenSource.Token)
     End Sub
 
-    Private Sub search(searchTerm As String, cancellationToken As CancellationToken)
-        Dim t As Thread = New Thread(New ThreadStart(
-            Sub()
-                If _doc Is Nothing Then
-                    Return
-                End If
+    Private Async Sub search(searchTerm As String, cancellationToken As CancellationToken)
+        If _doc Is Nothing Then
+            Return
+        End If
 
-                Dim appl As Application = Application.Current
-                If appl Is Nothing Then
-                    Return
-                End If
-
+        Dim result As List(Of TextRange) = Await Task.Run(
+            Async Function() As Task(Of List(Of TextRange))
                 SyncLock _docLock
                     If Not _matches Is Nothing Then
                         For Each m In _matches
                             invalidateRangePages(m)
-                            If cancellationToken.IsCancellationRequested Then Return
+                            If cancellationToken.IsCancellationRequested Then Return Nothing
                         Next
                     End If
 
-                    _matches = New List(Of TextRange)()
+                    Dim matches As List(Of TextRange) = New List(Of TextRange)()
+
                     If searchTerm.Trim().Length > 0 Then
                         Dim filteredTerm As String = searchTerm.ToLower().Replace(Chr(32), "").Replace(Chr(13), "").Replace(Chr(10), "")
                         Dim i As Integer = _fullText.ToLower().IndexOf(filteredTerm)
@@ -191,40 +187,38 @@ Public Class Viewer
 
                             ' add match
                             Dim range As TextRange = New TextRange() With {
-                                        .StartPageIndex = startPageIndex,
-                                        .StartTextIndex = startTextIndex,
-                                        .EndPageIndex = endPageIndex,
-                                        .EndTextIndex = endTextIndex
-                                    }
-                            _matches.Add(range)
+                                .StartPageIndex = startPageIndex,
+                                .StartTextIndex = startTextIndex,
+                                .EndPageIndex = endPageIndex,
+                                .EndTextIndex = endTextIndex
+                            }
+                            matches.Add(range)
                             invalidateRangePages(range)
 
                             i = _fullText.ToLower().IndexOf(filteredTerm, i + 1)
 
-                            If cancellationToken.IsCancellationRequested Then Return
+                            If cancellationToken.IsCancellationRequested Then Return Nothing
                         End While
                     End If
+
+                    Return matches
                 End SyncLock
+            End Function)
 
-                If cancellationToken.IsCancellationRequested Then Return
+        If Not result Is Nothing Then
+            _matches = result
 
-                appl.Dispatcher.Invoke(
-                    Sub()
-                        If cancellationToken.IsCancellationRequested Then Return
+            ' count matches
+            If Not _matches Is Nothing Then
+                Me.NumberOfMatches = _matches.Count
+            Else
+                Me.NumberOfMatches = 0
+            End If
+            Me.CurrentMatchIndex = 0
+            Me.OnCurrentMatchIndexChanged()
 
-                        ' count matches
-                        If Not _matches Is Nothing Then
-                            Me.NumberOfMatches = _matches.Count
-                        Else
-                            Me.NumberOfMatches = 0
-                        End If
-                        Me.CurrentMatchIndex = 0
-                        Me.OnCurrentMatchIndexChanged()
-
-                        Me.IsLoading = False
-                    End Sub)
-            End Sub))
-        t.Start()
+            Me.IsLoading = False
+        End If
     End Sub
 
     Public Overloads Sub OnCurrentMatchIndexChanged()
