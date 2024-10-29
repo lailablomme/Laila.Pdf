@@ -158,6 +158,7 @@ Public Class Viewer
 
     Private Async Sub search(searchTerm As String, cancellationToken As CancellationToken)
         If _doc Is Nothing Then
+            IsLoading = False
             Return
         End If
 

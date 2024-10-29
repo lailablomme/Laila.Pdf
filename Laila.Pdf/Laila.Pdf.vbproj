@@ -6,7 +6,7 @@
     <RootNamespace>Laila.Pdf</RootNamespace>
     <UseWPF>true</UseWPF>
     <Title>Laila.Pdf</Title>
-    <Version>2.2.8</Version>
+    <Version>2.2.9</Version>
     <Authors>Laïla Blomme</Authors>
     <Description>A .NET6 WPF Pdfium-based viewer featuring smooth scrolling, text selecting and copying, search and basic PDF forms support and a .NET6 WPF PDF printer.</Description>
     <Copyright>Copyright © 2024 by Laïla Blomme</Copyright>
