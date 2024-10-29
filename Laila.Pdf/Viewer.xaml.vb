@@ -823,30 +823,38 @@ Public Class Viewer
     Public Overloads Sub OnDocumentChanged()
         Dim bytes As Byte() = GetValue(DocumentProperty)
 
+        Dim appl As Application = Application.Current
+        If appl Is Nothing Then
+            Return
+        End If
+
         Me.IsLoading = True
         errorGrid.Visibility = Visibility.Collapsed
 
         SyncLock _docLock
-            ' dispose previous doc
-            If Not _doc Is Nothing Then
-                CType(_doc, IDisposable).Dispose()
-            End If
+            Try
+                ' dispose previous doc
+                If Not _doc Is Nothing Then
+                    CType(_doc, IDisposable).Dispose()
+                End If
 
-            ' open doc on dispatcher thread because this is the thread IDisposeable.Dispose works on
-            _doc = New PdfDocument(bytes, 0, bytes.Length)
-            For Each page In _doc.Pages
-                Dim f As PdfForm = page.Form
-                Dim tp As PdfTextPage = page.TextPage
-            Next
+                ' open doc on dispatcher thread because this is the thread IDisposeable.Dispose works on
+                _doc = New PdfDocument(bytes, 0, bytes.Length)
+                For Each page In _doc.Pages
+                    Dim f As PdfForm = page.Form
+                    Dim tp As PdfTextPage = page.TextPage
+                Next
+            Catch ex As Exception
+                Me.IsLoading = False
+                errorGrid.Visibility = Visibility.Visible
+                errorTextBlock.Text = Me.GetExceptionText(ex)
+                Me.InvalidateVisual()
+                Return
+            End Try
         End SyncLock
 
         Dim t As Thread = New Thread(New ThreadStart(
             Sub()
-                Dim appl As Application = Application.Current
-                If appl Is Nothing Then
-                    Return
-                End If
-
                 Dim isFirst As Boolean = _p Is Nothing
 
                 SyncLock _docLock
