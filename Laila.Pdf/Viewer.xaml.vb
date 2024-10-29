@@ -216,9 +216,9 @@ Public Class Viewer
             End If
             Me.CurrentMatchIndex = 0
             Me.OnCurrentMatchIndexChanged()
-
-            Me.IsLoading = False
         End If
+
+        Me.IsLoading = False
     End Sub
 
     Public Overloads Sub OnCurrentMatchIndexChanged()
