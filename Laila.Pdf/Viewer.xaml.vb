@@ -5,6 +5,7 @@ Imports System.Text
 Imports System.Threading
 Imports System.Windows
 Imports System.Windows.Controls
+Imports System.Windows.Controls.Primitives
 Imports System.Windows.Input
 Imports System.Windows.Markup
 Imports System.Windows.Media
@@ -1669,7 +1670,7 @@ Public Class Viewer
                 Return i
             End If
         Next
-        Return -1
+        Return _p.Count - 1
     End Function
 
     Private Const PAGE_PADDING_Y As Integer = 10
@@ -1694,16 +1695,21 @@ Public Class Viewer
         ' get y to draw i'th page
         Dim posY As Double = -scrollBarV.Value + PAGE_PADDING_Y
         For z = 0 To i - 1
-            posY += (_p(z).Height + PAGE_PADDING_Y)
+            posY += _p(z).Height + PAGE_PADDING_Y
         Next
 
         ' get x to draw i'th page
         Dim maxWidth As Double = If(Not _p Is Nothing, _p.Max(Function(p) p.Width + PAGE_PADDING_X), 0)
         Dim x As Integer = maxWidth / 2 - _p(i).Width / 2
         If maxWidth < Me.ActualWidth - scrollbarVWidth Then
-            x = x + (((Me.ActualWidth - scrollbarVWidth) - (maxWidth)) / 2) '+ (PAGE_PADDING_X / 2)
+            x = x + ((Me.ActualWidth - scrollbarVWidth - maxWidth) / 2)
         Else
-            x = x - scrollBarH.Value '+ (PAGE_PADDING_X / 2)
+            x = x - scrollBarH.Value
+        End If
+
+        Dim viewportSize As Double = (scrollBarV.ViewportSize - scrollBarH.Height - 10)
+        If _p.Sum(Function(p) p.Height + PAGE_PADDING_Y) + PAGE_PADDING_Y < viewportSize Then
+            posY += (viewportSize - (_p.Sum(Function(p) p.Height + PAGE_PADDING_Y) + PAGE_PADDING_Y)) / 2
         End If
 
         Return New Rect(x, posY, _p(i).Width, _p(i).Height)
